@@ -1,7 +1,7 @@
 {
   "name": "@voidly/mcp-server",
-  "version": "1.0.1",
-  "description": "MCP server for Voidly Global Censorship Index - enables AI systems to query real-time censorship data",
+  "version": "1.6.0",
+  "description": "MCP server for Voidly Global Censorship Index — 27 tools for querying real-time censorship data across 119 countries",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -14,7 +14,6 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -26,19 +25,22 @@
     "ai",
     "claude",
     "chatgpt",
+    "cursor",
+    "windsurf",
     "llm",
-    "internet-freedom"
+    "internet-freedom",
+    "censorship-detection",
+    "human-rights"
   ],
   "author": "Voidly Research <research@voidly.ai>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/EmperorMew/aegisvpn.git",
-    "directory": "mcp-server"
+    "url": "https://github.com/voidly-ai/mcp-server.git"
   },
-  "homepage": "https://voidly.ai/censorship-index",
+  "homepage": "https://voidly.ai/data",
   "bugs": {
-    "url": "https://github.com/EmperorMew/aegisvpn/issues"
+    "url": "https://github.com/voidly-ai/mcp-server/issues"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -51,7 +53,6 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }
 }
