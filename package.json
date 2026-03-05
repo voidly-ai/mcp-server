@@ -1,7 +1,7 @@
 {
   "name": "@voidly/mcp-server",
-  "version": "1.6.0",
-  "description": "MCP server for Voidly Global Censorship Index — 27 tools for querying real-time censorship data across 119 countries",
+  "version": "2.7.0",
+  "description": "MCP server for Voidly Global Censorship Index - enables AI systems to query real-time censorship data",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -25,12 +26,8 @@
     "ai",
     "claude",
     "chatgpt",
-    "cursor",
-    "windsurf",
     "llm",
-    "internet-freedom",
-    "censorship-detection",
-    "human-rights"
+    "internet-freedom"
   ],
   "author": "Voidly Research <research@voidly.ai>",
   "license": "MIT",
@@ -38,7 +35,7 @@
     "type": "git",
     "url": "https://github.com/voidly-ai/mcp-server.git"
   },
-  "homepage": "https://voidly.ai/data",
+  "homepage": "https://voidly.ai/mcp",
   "bugs": {
     "url": "https://github.com/voidly-ai/mcp-server/issues"
   },
@@ -53,6 +50,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }
 }
