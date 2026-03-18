@@ -18,8 +18,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+  ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 // Voidly API endpoints
 const VOIDLY_API = 'https://api.voidly.ai';
@@ -37,8 +36,7 @@ const COUNTRY_NAMES: Record<string, string> = {
   EC: 'Ecuador', US: 'United States', GB: 'United Kingdom', DE: 'Germany',
   FR: 'France', ES: 'Spain', IT: 'Italy', CA: 'Canada', AU: 'Australia',
   JP: 'Japan', KR: 'South Korea', NL: 'Netherlands', CH: 'Switzerland',
-  NZ: 'New Zealand', HK: 'Hong Kong', TW: 'Taiwan', SG: 'Singapore',
-};
+  NZ: 'New Zealand', HK: 'Hong Kong', TW: 'Taiwan', SG: 'Singapore' };
 
 // MCP server version — used in User-Agent and server metadata
 const MCP_VERSION = '2.9.1';
@@ -50,11 +48,8 @@ async function fetchJson<T>(url: string): Promise<T> {
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
-        'Accept': 'application/json',
-      },
-      signal: controller.signal,
-    });
+        'Accept': 'application/json' },
+      signal: controller.signal });
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
@@ -67,19 +62,30 @@ async function fetchJson<T>(url: string): Promise<T> {
   }
 }
 
-// Agent relay fetch helper with timeout and auth
+// Agent relay fetch helper with timeout, auth, and safe error handling
 async function agentFetch(url: string, options: RequestInit & { headers?: Record<string, string> } = {}): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
     const headers = {
-      'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
-      ...options.headers,
-    };
+      ...options.headers };
     const response = await fetch(url, { ...options, headers, signal: controller.signal });
     return response;
+  } catch (err: any) {
+    if (err.name === 'AbortError') throw new Error(`Request timed out after 30s: ${url.replace(VOIDLY_API, '')}`);
+    throw err;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// Safe JSON parse from response — handles HTML error pages from Cloudflare
+async function safeJson(response: Response): Promise<any> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text.slice(0, 200) };
   }
 }
 
@@ -402,10 +408,8 @@ async function verifyClaim(claim: string, requireEvidence: boolean = false): Pro
   const response = await agentFetch(`${VOIDLY_API}/verify-claim`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ claim, require_evidence: requireEvidence }),
-  });
+      'Content-Type': 'application/json' },
+    body: JSON.stringify({ claim, require_evidence: requireEvidence }) });
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
@@ -454,8 +458,7 @@ async function verifyClaim(claim: string, requireEvidence: boolean = false): Pro
     likely: '🟡',
     unconfirmed: '❓',
     no_data: '⚪',
-    insufficient_data: '⚠️',
-  };
+    insufficient_data: '⚠️' };
   result += `## Verdict: ${verdictEmoji[data.verdict] || ''} ${data.verdict.toUpperCase()}\n\n`;
   result += `**Confidence:** ${(data.confidence * 100).toFixed(0)}%\n`;
   result += `**Reason:** ${data.reason}\n\n`;
@@ -1233,14 +1236,11 @@ async function getIncidentEvidence(incidentId: string): Promise<string> {
 }
 
 async function getIncidentReport(incidentId: string, format: string = 'markdown'): Promise<string> {
-  const response = await fetch(
+  const response = await agentFetch(
     `${VOIDLY_DATA_API}/incidents/${encodeURIComponent(incidentId)}/report?format=${format}`,
     {
       headers: {
-        'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
-        'Accept': format === 'markdown' ? 'text/markdown' : 'text/plain',
-      },
-    }
+        'Accept': format === 'markdown' ? 'text/markdown' : 'text/plain' } }
   );
 
   if (!response.ok) {
@@ -1435,11 +1435,10 @@ async function getIncidentsSince(since: string): Promise<string> {
 }
 
 async function agentRegister(name?: string, capabilities?: string[]): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/register`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ name, capabilities }),
-  });
+    headers: { 'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, capabilities }) });
   if (!response.ok) throw new Error(`Registration failed: ${response.status}`);
   const data = await response.json() as any;
   let result = `# Agent Registered Successfully\n\n`;
@@ -1457,13 +1456,12 @@ async function agentRegister(name?: string, capabilities?: string[]): Promise<st
 }
 
 async function agentSendMessage(apiKey: string, toDid: string, message: string, threadId?: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/send`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ to: toDid, message, thread_id: threadId }),
-  });
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ to: toDid, message, thread_id: threadId }) });
   if (!response.ok) {
-    const err = await response.json() as any;
+    const err = await safeJson(response);
     throw new Error(err.error || `Send failed: ${response.status}`);
   }
   const data = await response.json() as any;
@@ -1481,9 +1479,8 @@ async function agentReceiveMessages(apiKey: string, since?: string, limit?: numb
   const params = new URLSearchParams();
   if (since) params.set('since', since);
   if (limit) params.set('limit', String(limit));
-  const response = await fetch(`${VOIDLY_API}/v1/agent/receive?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/receive?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`Receive failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.messages?.length) return `# Inbox Empty\n\nNo new messages.`;
@@ -1504,9 +1501,8 @@ async function agentDiscover(query?: string, capability?: string, limit?: number
   if (query) params.set('query', query);
   if (capability) params.set('capability', capability);
   if (limit) params.set('limit', String(limit));
-  const response = await fetch(`${VOIDLY_API}/v1/agent/discover?${params}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/discover?${params}`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Discovery failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.agents?.length) return `# No Agents Found\n\nNo agents match your search criteria.`;
@@ -1523,9 +1519,8 @@ async function agentDiscover(query?: string, capability?: string, limit?: number
 }
 
 async function agentGetIdentity(did: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/identity/${did}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/identity/${did}`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Identity lookup failed: ${response.status}`);
   const data = await response.json() as any;
   let result = `# Agent Identity\n\n`;
@@ -1542,20 +1537,18 @@ async function agentGetIdentity(did: string): Promise<string> {
 }
 
 async function agentVerifyMessage(envelope: string, signature: string, senderDid: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/verify`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/verify`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ envelope, signature, sender_did: senderDid }),
-  });
+    headers: { 'Content-Type': 'application/json'},
+    body: JSON.stringify({ envelope, signature, sender_did: senderDid }) });
   if (!response.ok) throw new Error(`Verification failed: ${response.status}`);
   const data = await response.json() as any;
   return `# Signature Verification\n\n- **Valid:** ${data.valid ? 'Yes ✓' : 'No ✗'}\n- **Sender:** \`${data.sender_did}\`\n- **Verified At:** ${data.verified_at}\n`;
 }
 
 async function agentRelayStats(): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/stats`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/stats`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Stats failed: ${response.status}`);
   const data = await response.json() as any;
   let result = `# Voidly Agent Relay Stats\n\n`;
@@ -1575,18 +1568,16 @@ async function agentRelayStats(): Promise<string> {
 }
 
 async function agentDeleteMessage(apiKey: string, messageId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/messages/${messageId}`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/messages/${messageId}`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
   return `Message \`${messageId}\` deleted successfully.`;
 }
 
 async function agentGetProfile(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/profile`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/profile`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`Profile fetch failed: ${response.status}`);
   const data = await response.json() as any;
   let result = `# Agent Profile\n\n`;
@@ -1601,29 +1592,25 @@ async function agentGetProfile(apiKey: string): Promise<string> {
 }
 
 async function agentUpdateProfile(apiKey: string, updates: { name?: string; capabilities?: string[] }): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/profile`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/profile`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
-      'X-Agent-Key': apiKey,
-      'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
+      'X-Agent-Key': apiKey
     },
-    body: JSON.stringify(updates),
-  });
+    body: JSON.stringify(updates) });
   if (!response.ok) throw new Error(`Profile update failed: ${response.status}`);
   return `Profile updated successfully.`;
 }
 
 async function agentRegisterWebhook(apiKey: string, webhookUrl: string, events?: string[]): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/webhooks`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/webhooks`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Agent-Key': apiKey,
-      'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
+      'X-Agent-Key': apiKey
     },
-    body: JSON.stringify({ webhook_url: webhookUrl, events }),
-  });
+    body: JSON.stringify({ webhook_url: webhookUrl, events }) });
   if (!response.ok) throw new Error(`Webhook registration failed: ${response.status}`);
   const data = await response.json() as any;
   let result = `# Webhook Registered\n\n`;
@@ -1636,9 +1623,8 @@ async function agentRegisterWebhook(apiKey: string, webhookUrl: string, events?:
 }
 
 async function agentListWebhooks(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/webhooks`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/webhooks`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`Webhook list failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.webhooks?.length) return `# No Webhooks\n\nNo webhooks registered.`;
@@ -1656,13 +1642,12 @@ async function agentListWebhooks(apiKey: string): Promise<string> {
 // ─── Channel (Encrypted AI Forum) Functions ──────────────────────────────────
 
 async function agentCreateChannel(apiKey: string, name: string, description?: string, topic?: string, isPrivate?: boolean): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/channels`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/channels`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ name, description, topic, private: isPrivate }),
-  });
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ name, description, topic, private: isPrivate }) });
   if (!response.ok) {
-    const err = await response.json() as any;
+    const err = await safeJson(response);
     throw new Error(`Channel creation failed: ${err.error || response.status}`);
   }
   const data = await response.json() as any;
@@ -1676,10 +1661,10 @@ async function agentListChannels(options: { topic?: string; query?: string; mine
   if (options.mine) params.set('mine', 'true');
   if (options.limit) params.set('limit', String(options.limit));
 
-  const headers: Record<string, string> = { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` };
+  const headers: Record<string, string> = {};
   if (options.apiKey) headers['X-Agent-Key'] = options.apiKey;
 
-  const response = await fetch(`${VOIDLY_API}/v1/agent/channels?${params}`, { headers });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/channels?${params}`, { headers });
   if (!response.ok) throw new Error(`Channel list failed: ${response.status}`);
   const data = await response.json() as any;
 
@@ -1698,12 +1683,11 @@ async function agentListChannels(options: { topic?: string; query?: string; mine
 }
 
 async function agentJoinChannel(apiKey: string, channelId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/join`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/join`, {
     method: 'POST',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) {
-    const err = await response.json() as any;
+    const err = await safeJson(response);
     throw new Error(`Join failed: ${err.error || response.status}`);
   }
   const data = await response.json() as any;
@@ -1712,13 +1696,12 @@ async function agentJoinChannel(apiKey: string, channelId: string): Promise<stri
 }
 
 async function agentPostToChannel(apiKey: string, channelId: string, message: string, replyTo?: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/messages`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ message, reply_to: replyTo }),
-  });
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ message, reply_to: replyTo }) });
   if (!response.ok) {
-    const err = await response.json() as any;
+    const err = await safeJson(response);
     throw new Error(`Post failed: ${err.error || response.status}`);
   }
   const data = await response.json() as any;
@@ -1730,11 +1713,10 @@ async function agentReadChannel(apiKey: string, channelId: string, since?: strin
   if (since) params.set('since', since);
   if (limit) params.set('limit', String(limit));
 
-  const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/messages?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/messages?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) {
-    const err = await response.json() as any;
+    const err = await safeJson(response);
     throw new Error(`Read failed: ${err.error || response.status}`);
   }
   const data = await response.json() as any;
@@ -1753,12 +1735,11 @@ async function agentReadChannel(apiKey: string, channelId: string, since?: strin
 }
 
 async function agentDeactivate(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/deactivate`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/deactivate`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) {
-    const err = await response.json() as any;
+    const err = await safeJson(response);
     throw new Error(`Deactivation failed: ${err.error || response.status}`);
   }
   const data = await response.json() as any;
@@ -1768,20 +1749,18 @@ async function agentDeactivate(apiKey: string): Promise<string> {
 // ─── Capability Registry Helpers ──────────────────────────────────────────────
 
 async function agentRegisterCapability(apiKey: string, name: string, description?: string, version?: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/capabilities`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ name, description, version }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Registration failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ name, description, version }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Registration failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `# Capability Registered\n\n- **Name:** ${data.name}\n- **ID:** \`${data.id}\`\n- **Agent:** \`${data.did}\`\n\nOther agents can now find you via \`agent_search_capabilities\` and send you tasks.`;
 }
 
 async function agentListCapabilities(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/capabilities`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`List failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.capabilities?.length) return 'No capabilities registered. Use `agent_register_capability` to advertise what you can do.';
@@ -1794,9 +1773,8 @@ async function agentSearchCapabilities(query?: string, name?: string, limit?: nu
   if (query) params.set('q', query);
   if (name) params.set('name', name);
   if (limit) params.set('limit', String(limit));
-  const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities/search?${params}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/capabilities/search?${params}`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Search failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.results?.length) return 'No capabilities found matching your query.';
@@ -1805,23 +1783,21 @@ async function agentSearchCapabilities(query?: string, name?: string, limit?: nu
 }
 
 async function agentDeleteCapability(apiKey: string, capabilityId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities/${capabilityId}`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/capabilities/${capabilityId}`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Delete failed: ${err.error || response.status}`); }
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Delete failed: ${err.error || response.status}`); }
   return `Capability \`${capabilityId}\` deleted.`;
 }
 
 // ─── Task Protocol Helpers ───────────────────────────────────────────────────
 
 async function agentCreateTask(apiKey: string, to: string, capability: string, encryptedInput: string, inputNonce: string, priority?: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ to, capability, encrypted_input: encryptedInput, input_nonce: inputNonce, priority }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Task creation failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ to, capability, encrypted_input: encryptedInput, input_nonce: inputNonce, priority }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Task creation failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `# Task Created\n\n- **ID:** \`${data.id}\`\n- **To:** \`${data.to}\`\n- **Capability:** ${data.capability || 'general'}\n- **Priority:** ${data.priority}\n- **Status:** ${data.status}`;
 }
@@ -1831,9 +1807,8 @@ async function agentListTasks(apiKey: string, role?: string, status?: string, ca
   if (role) params.set('role', role);
   if (status) params.set('status', status);
   if (capability) params.set('capability', capability);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`List failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.tasks?.length) return `No tasks found (role: ${data.role}).`;
@@ -1842,10 +1817,9 @@ async function agentListTasks(apiKey: string, role?: string, status?: string, ca
 }
 
 async function agentGetTask(apiKey: string, taskId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Get failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Get failed: ${err.error || response.status}`); }
   const t = await response.json() as any;
   return `# Task Detail\n\n- **ID:** \`${t.id}\`\n- **From:** \`${t.from}\`\n- **To:** \`${t.to}\`\n- **Capability:** ${t.capability || 'general'}\n- **Status:** ${t.status}\n- **Priority:** ${t.priority}\n- **Created:** ${t.created_at}\n- **Has Input:** ${!!t.encrypted_input}\n- **Has Output:** ${!!t.encrypted_output}\n- **Rating:** ${t.rating || 'none'}`;
 }
@@ -1855,12 +1829,11 @@ async function agentUpdateTask(apiKey: string, taskId: string, status?: string, 
   if (status) body.status = status;
   if (encryptedOutput) { body.encrypted_output = encryptedOutput; body.output_nonce = outputNonce; }
   if (rating !== undefined) body.rating = rating;
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Update failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify(body) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Update failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `Task \`${taskId}\` updated to status: **${data.status}**`;
 }
@@ -1868,16 +1841,14 @@ async function agentUpdateTask(apiKey: string, taskId: string, status?: string, 
 // ─── Attestation Helpers ─────────────────────────────────────────────────────
 
 async function agentCreateAttestation(apiKey: string, args: any): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/attestations`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/attestations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
     body: JSON.stringify({
       claim_type: args.claim_type, claim_data: args.claim_data,
       signature: args.signature, timestamp: args.timestamp,
-      country: args.country, domain: args.domain, confidence: args.confidence,
-    }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Attestation failed: ${err.error || response.status}`); }
+      country: args.country, domain: args.domain, confidence: args.confidence }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Attestation failed: ${err.error || response.status}`); }
   const a = await response.json() as any;
   return `# Attestation Created\n\n- **ID:** \`${a.id}\`\n- **Type:** ${a.claim_type}\n- **Country:** ${a.country || 'global'}\n- **Domain:** ${a.domain || 'none'}\n- **Confidence:** ${a.confidence}\n- **Consensus:** ${a.consensus_score}\n\nOther agents can now corroborate or refute this claim.`;
 }
@@ -1891,9 +1862,8 @@ async function agentQueryAttestations(args: any): Promise<string> {
   if (args?.min_consensus !== undefined) params.set('min_consensus', String(args.min_consensus));
   if (args?.since) params.set('since', args.since);
   if (args?.limit) params.set('limit', String(args.limit));
-  const response = await fetch(`${VOIDLY_API}/v1/agent/attestations?${params}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/attestations?${params}`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Query failed: ${response.status}`);
   const data = await response.json() as any;
   if (!data.attestations?.length) return 'No attestations found matching your query.';
@@ -1904,22 +1874,20 @@ async function agentQueryAttestations(args: any): Promise<string> {
 }
 
 async function agentGetAttestation(attestationId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/attestations/${attestationId}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Get failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/attestations/${attestationId}`, {
+    headers: {} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Get failed: ${err.error || response.status}`); }
   const a = await response.json() as any;
   const corrs = (a.corroborations || []).map((c: any) => `  - \`${c.agent}\` voted **${c.vote}**: ${c.comment || 'no comment'}`).join('\n');
   return `# Attestation Detail\n\n- **ID:** \`${a.id}\`\n- **Agent:** \`${a.agent}\` (${a.agent_name || 'unnamed'})\n- **Type:** ${a.claim_type}\n- **Data:** ${JSON.stringify(a.claim_data)}\n- **Country:** ${a.country || 'global'}\n- **Domain:** ${a.domain || 'none'}\n- **Confidence:** ${a.confidence}\n- **Consensus:** ${a.consensus_score}\n- **Corroborations:** ${a.corroboration_count}\n- **Refutations:** ${a.refutation_count}\n\n## Votes\n${corrs || '  No votes yet.'}`;
 }
 
 async function agentCorroborate(apiKey: string, attestationId: string, vote: string, signature: string, comment?: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/attestations/${attestationId}/corroborate`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/attestations/${attestationId}/corroborate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ vote, signature, comment }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Corroboration failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ vote, signature, comment }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Corroboration failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `# Vote Recorded\n\n- **Attestation:** \`${attestationId}\`\n- **Vote:** ${data.vote || vote}\n- **New Consensus:** ${data.new_consensus_score}\n- **Corroborations:** ${data.corroboration_count}\n- **Refutations:** ${data.refutation_count}`;
 }
@@ -1929,10 +1897,9 @@ async function agentGetConsensus(country?: string, domain?: string, type?: strin
   if (country) params.set('country', country);
   if (domain) params.set('domain', domain);
   if (type) params.set('type', type);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/attestations/consensus?${params}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Consensus query failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/attestations/consensus?${params}`, {
+    headers: {} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Consensus query failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   if (!data.consensus?.length) return 'No consensus data found for the given filters.';
   const items = data.consensus.map((c: any) =>
@@ -1947,12 +1914,11 @@ async function agentInviteToChannel(apiKey: string, channelId: string, did: stri
   const body: any = { did };
   if (message) body.message = message;
   if (expiresHours) body.expires_hours = expiresHours;
-  const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/invite`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/invite`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Invite failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify(body) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Invite failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `✅ Invited ${did} to channel ${channelId}. Invite ID: ${data.id}. Expires: ${data.expires_at}`;
 }
@@ -1960,10 +1926,9 @@ async function agentInviteToChannel(apiKey: string, channelId: string, did: stri
 async function agentListInvites(apiKey: string, status?: string): Promise<string> {
   const params = new URLSearchParams();
   if (status) params.set('status', status);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/invites?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`List invites failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/invites?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`List invites failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   if (!data.invites?.length) return 'No pending channel invites.';
   const items = data.invites.map((inv: any) =>
@@ -1973,12 +1938,11 @@ async function agentListInvites(apiKey: string, status?: string): Promise<string
 }
 
 async function agentRespondInvite(apiKey: string, inviteId: string, action: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/invites/${inviteId}/respond`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/invites/${inviteId}/respond`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ action }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Invite response failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ action }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Invite response failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return action === 'accept'
     ? `✅ Accepted invite ${inviteId}. You've joined channel ${data.channel_id} as ${data.role}.`
@@ -1988,10 +1952,9 @@ async function agentRespondInvite(apiKey: string, inviteId: string, action: stri
 // ─── Trust Score helpers ────────────────────────────────────────────────────
 
 async function agentGetTrust(did: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/trust/${did}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Trust score failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/trust/${did}`, {
+    headers: {} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Trust score failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   const c = data.components;
   return `# Trust Score: ${data.name || data.agent}\n\n` +
@@ -2012,9 +1975,8 @@ async function agentTrustLeaderboard(limit?: number, minLevel?: string): Promise
   const params = new URLSearchParams();
   if (limit) params.set('limit', limit.toString());
   if (minLevel) params.set('min_level', minLevel);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/trust/leaderboard?${params}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/trust/leaderboard?${params}`, {
+    headers: {} });
   if (!response.ok) { const err = await response.json().catch(() => ({})) as any; throw new Error(`Leaderboard failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   if (!data.leaderboard?.length) return 'No agents on the leaderboard yet.';
@@ -2025,22 +1987,20 @@ async function agentTrustLeaderboard(limit?: number, minLevel?: string): Promise
 }
 
 async function agentMarkRead(apiKey: string, messageId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/messages/${messageId}/read`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/messages/${messageId}/read`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Mark read failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Mark read failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return data.already_read ? `Message already read at ${data.read_at}` : `✅ Marked as read at ${data.read_at}`;
 }
 
 async function agentMarkReadBatch(apiKey: string, messageIds: string[]): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/messages/read-batch`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/messages/read-batch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ message_ids: messageIds }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Batch read failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ message_ids: messageIds }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Batch read failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `✅ Marked ${data.updated} of ${data.total_requested} messages as read`;
 }
@@ -2048,10 +2008,9 @@ async function agentMarkReadBatch(apiKey: string, messageIds: string[]): Promise
 async function agentUnreadCount(apiKey: string, fromDid?: string): Promise<string> {
   const params = new URLSearchParams();
   if (fromDid) params.set('from', fromDid);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/messages/unread-count?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Unread count failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/messages/unread-count?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Unread count failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   let result = `# Unread Messages: ${data.unread_count}\n`;
   if (data.by_sender?.length) {
@@ -2061,18 +2020,16 @@ async function agentUnreadCount(apiKey: string, fromDid?: string): Promise<strin
 }
 
 async function agentBroadcastTask(apiKey: string, capability: string, input: string, priority?: string, maxAgents?: number, minTrustLevel?: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/broadcast`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks/broadcast`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
     body: JSON.stringify({
       capability,
       input,
       priority: priority || 'normal',
       max_agents: maxAgents,
-      min_trust_level: minTrustLevel,
-    }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Broadcast failed: ${err.error || response.status}`); }
+      min_trust_level: minTrustLevel }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Broadcast failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   const taskList = data.tasks.map((t: any) => `- Task ${t.task_id} → ${t.agent_did}`).join('\n');
   return `# Broadcast Created\n\n**ID:** ${data.broadcast_id}\n**Capability:** ${data.capability}\n**Priority:** ${data.priority}\n**Agents matched:** ${data.agents_matched}\n\n## Tasks\n${taskList}`;
@@ -2081,9 +2038,8 @@ async function agentBroadcastTask(apiKey: string, capability: string, input: str
 async function agentListBroadcasts(apiKey: string, status?: string): Promise<string> {
   const params = new URLSearchParams();
   if (status) params.set('status', status);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/broadcasts?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks/broadcasts?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) { const err = await response.json().catch(() => ({})) as any; throw new Error(`List broadcasts failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   if (!data.broadcasts?.length) return 'No broadcasts found.';
@@ -2094,10 +2050,9 @@ async function agentListBroadcasts(apiKey: string, status?: string): Promise<str
 }
 
 async function agentGetBroadcast(apiKey: string, broadcastId: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/broadcasts/${broadcastId}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Broadcast detail failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks/broadcasts/${broadcastId}`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Broadcast detail failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   const b = data.broadcast;
   const tasks = data.tasks.map((t: any) =>
@@ -2109,10 +2064,9 @@ async function agentGetBroadcast(apiKey: string, broadcastId: string): Promise<s
 async function agentGetAnalytics(apiKey: string, period?: string): Promise<string> {
   const params = new URLSearchParams();
   if (period) params.set('period', period);
-  const response = await fetch(`${VOIDLY_API}/v1/agent/analytics?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Analytics failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/analytics?${params}`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Analytics failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
   return `# Agent Analytics — ${d.name || d.agent}\n**Period:** ${d.period}\n**Member since:** ${d.member_since}\n\n` +
     `## Messaging\n- Sent: ${d.messaging.sent}\n- Received: ${d.messaging.received}\n- Read: ${d.messaging.read} (${(d.messaging.read_rate * 100).toFixed(0)}%)\n- Channel posts: ${d.messaging.channel_posts}\n- Channels: ${d.messaging.channels_joined}\n\n` +
@@ -2124,33 +2078,30 @@ async function agentGetAnalytics(apiKey: string, period?: string): Promise<strin
 // ─── Memory Store Helpers ──────────────────────────────────────────────────────
 
 async function agentMemorySet(apiKey: string, namespace: string, key: string, value: unknown, valueType?: string, ttl?: number): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ value, value_type: valueType, ttl }),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory set failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ value, value_type: valueType, ttl }) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Memory set failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
   return `✅ Stored **${d.namespace}/${d.key}** (${d.size_bytes} bytes)${d.expires_at ? ` — expires ${d.expires_at}` : ''}`;
 }
 
 async function agentMemoryGet(apiKey: string, namespace: string, key: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (response.status === 404) return `❌ Key **${namespace}/${key}** not found`;
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory get failed: ${err.error || response.status}`); }
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Memory get failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
   const valueStr = typeof d.value === 'object' ? JSON.stringify(d.value, null, 2) : String(d.value);
   return `📦 **${d.namespace}/${d.key}** (${d.value_type})\n\`\`\`\n${valueStr}\n\`\`\`\nSize: ${d.size_bytes} bytes | Updated: ${d.updated_at}${d.expires_at ? ` | Expires: ${d.expires_at}` : ''}`;
 }
 
 async function agentMemoryDelete(apiKey: string, namespace: string, key: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory delete failed: ${err.error || response.status}`); }
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Memory delete failed: ${err.error || response.status}`); }
   return `🗑️ Deleted **${namespace}/${key}**`;
 }
 
@@ -2159,10 +2110,9 @@ async function agentMemoryList(apiKey: string, namespace?: string, prefix?: stri
   const params = new URLSearchParams();
   if (prefix) params.set('prefix', prefix);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(ns)}${qs}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory list failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(ns)}${qs}`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Memory list failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
   if (!d.keys?.length) return `📂 Namespace **${d.namespace}** is empty`;
   return `📂 **${d.namespace}** — ${d.total_keys} keys, ${d.total_bytes} bytes\n\n` +
@@ -2170,10 +2120,9 @@ async function agentMemoryList(apiKey: string, namespace?: string, prefix?: stri
 }
 
 async function agentMemoryNamespaces(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/memory`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory namespaces failed: ${err.error || response.status}`); }
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/memory`, {
+    headers: { 'X-Agent-Key': apiKey} });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Memory namespaces failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
   let out = `🧠 **Agent Memory** — ${d.quota.used_bytes}/${d.quota.quota_bytes} bytes used (${((d.quota.used_bytes/d.quota.quota_bytes)*100).toFixed(1)}%)\n\n`;
   if (!d.namespaces?.length) return out + 'No namespaces yet. Store a value to create one.';
@@ -2184,12 +2133,11 @@ async function agentMemoryNamespaces(apiKey: string): Promise<string> {
 // ─── Data Export Helpers ──────────────────────────────────────────────────────
 
 async function agentExportData(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/export`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/export`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({}),
-  });
-  if (!response.ok) { const err = await response.json() as any; throw new Error(`Export failed: ${err.error || response.status}`); }
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({}) });
+  if (!response.ok) { const err = await safeJson(response); throw new Error(`Export failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
   return `📦 **Data Export** — ${d.export_id}\n\n` +
     `**Agent:** ${d.identity?.did} (${d.identity?.name || 'unnamed'})\n` +
@@ -2209,9 +2157,8 @@ async function agentExportData(apiKey: string): Promise<string> {
 // ─── Relay Federation Helpers ─────────────────────────────────────────────────
 
 async function relayInfo(): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/relay/info`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/relay/info`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Relay info failed: ${response.status}`);
   const d = await response.json() as any;
   return `# ${d.relay?.name || 'Voidly Relay'}\n\n` +
@@ -2224,9 +2171,8 @@ async function relayInfo(): Promise<string> {
 }
 
 async function relayPeers(): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/relay/peers`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/relay/peers`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Relay peers failed: ${response.status}`);
   const d = await response.json() as any;
   if (!d.peers?.length) return '🌐 No federated relay peers yet. The network is ready for federation.';
@@ -2235,19 +2181,17 @@ async function relayPeers(): Promise<string> {
 }
 
 async function agentPing(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/ping`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/ping`, {
     method: 'POST',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`Ping failed: ${response.status}`);
   const d = await response.json() as any;
   return `🏓 **Pong!** Agent ${d.name} (${d.did})\n- Status: ${d.status}\n- Uptime: ${d.uptime?.days}d ${d.uptime?.hours}h\n- Messages: ${d.message_count}\n- Server time: ${d.server_time}`;
 }
 
 async function agentPingCheck(did: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/ping/${encodeURIComponent(did)}`, {
-    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/ping/${encodeURIComponent(did)}`, {
+    headers: {} });
   if (!response.ok) throw new Error(`Ping check failed: ${response.status}`);
   const d = await response.json() as any;
   const emoji = d.online_status === 'online' ? '🟢' : d.online_status === 'idle' ? '🟡' : '🔴';
@@ -2255,11 +2199,10 @@ async function agentPingCheck(did: string): Promise<string> {
 }
 
 async function agentKeyPin(apiKey: string, did: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/keys/pin`, {
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/keys/pin`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-    body: JSON.stringify({ did }),
-  });
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
+    body: JSON.stringify({ did }) });
   if (!response.ok) throw new Error(`Key pin failed: ${response.status}`);
   const d = await response.json() as any;
   if (d.key_changed) return `⚠️ **KEY CHANGED** for ${did}!\n${d.warning}\n- Previous: ${d.previous_signing_hash}\n- Current: ${d.current_signing_hash}`;
@@ -2267,9 +2210,8 @@ async function agentKeyPin(apiKey: string, did: string): Promise<string> {
 }
 
 async function agentKeyPins(apiKey: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/keys/pins`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/keys/pins`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`List pins failed: ${response.status}`);
   const d = await response.json() as any;
   if (!d.pins?.length) return '📌 No key pins yet. Use agent_key_pin to establish TOFU with another agent.';
@@ -2278,9 +2220,8 @@ async function agentKeyPins(apiKey: string): Promise<string> {
 }
 
 async function agentKeyVerify(apiKey: string, did: string): Promise<string> {
-  const response = await fetch(`${VOIDLY_API}/v1/agent/keys/verify/${encodeURIComponent(did)}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
-  });
+  const response = await agentFetch(`${VOIDLY_API}/v1/agent/keys/verify/${encodeURIComponent(did)}`, {
+    headers: { 'X-Agent-Key': apiKey} });
   if (!response.ok) throw new Error(`Key verify failed: ${response.status}`);
   const d = await response.json() as any;
   if (d.status === 'not_pinned') return `❓ No pin for ${did}. Use agent_key_pin first (TOFU).`;
@@ -2292,14 +2233,11 @@ async function agentKeyVerify(apiKey: string, did: string): Promise<string> {
 const server = new Server(
   {
     name: 'voidly-censorship-index',
-    version: '2.9.0',
-  },
+    version: MCP_VERSION },
   {
     capabilities: {
       tools: {},
-      resources: {},
-    },
-  }
+      resources: {} } }
 );
 
 // Register tool handlers
@@ -2311,9 +2249,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'get_country_status',
       description: 'Get detailed censorship status for a specific country including anomaly rates, affected services, and active incidents.',
@@ -2322,12 +2258,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country_code: {
             type: 'string',
-            description: 'ISO 3166-1 alpha-2 country code (e.g., CN for China, IR for Iran, RU for Russia)',
-          },
-        },
-        required: ['country_code'],
-      },
-    },
+            description: 'ISO 3166-1 alpha-2 country code (e.g., CN for China, IR for Iran, RU for Russia)' } },
+        required: ['country_code'] } },
     {
       name: 'check_domain_blocked',
       description: 'Check if a specific domain may be blocked in a country. Note: domain-specific blocking data requires the Hydra API; this tool returns the general censorship profile for the country (anomaly rate, affected services, blocking methods) which indicates likelihood of blocking.',
@@ -2336,16 +2268,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           domain: {
             type: 'string',
-            description: 'Domain to check (e.g., google.com, twitter.com)',
-          },
+            description: 'Domain to check (e.g., google.com, twitter.com)' },
           country_code: {
             type: 'string',
-            description: 'ISO 3166-1 alpha-2 country code',
-          },
-        },
-        required: ['domain', 'country_code'],
-      },
-    },
+            description: 'ISO 3166-1 alpha-2 country code' } },
+        required: ['domain', 'country_code'] } },
     {
       name: 'get_most_censored',
       description: 'Get a ranked list of the most censored countries by anomaly rate.',
@@ -2354,21 +2281,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           limit: {
             type: 'number',
-            description: 'Number of countries to return (default: 10, max: 50)',
-          },
-        },
-        required: [],
-      },
-    },
+            description: 'Number of countries to return (default: 10, max: 50)' } },
+        required: [] } },
     {
       name: 'get_active_incidents',
       description: 'Get currently active censorship incidents worldwide including internet shutdowns, social media blocks, and VPN restrictions.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'verify_claim',
       description: 'Verify a censorship claim with evidence. Parses natural language claims like "Twitter was blocked in Iran on February 3, 2026" and returns verification with supporting incidents and evidence links.',
@@ -2377,16 +2298,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           claim: {
             type: 'string',
-            description: 'Natural language censorship claim to verify (e.g., "Is YouTube blocked in China?", "Twitter was blocked in Iran on February 3, 2026")',
-          },
+            description: 'Natural language censorship claim to verify (e.g., "Is YouTube blocked in China?", "Twitter was blocked in Iran on February 3, 2026")' },
           require_evidence: {
             type: 'boolean',
-            description: 'Whether to include detailed evidence chain with source links (default: false)',
-          },
-        },
-        required: ['claim'],
-      },
-    },
+            description: 'Whether to include detailed evidence chain with source links (default: false)' } },
+        required: ['claim'] } },
     {
       name: 'check_vpn_accessibility',
       description: 'Check VPN accessibility from different countries. UNIQUE DATA: Only Voidly can answer "Can users in Iran connect to VPNs?" by testing VPN endpoints from 37+ global locations.',
@@ -2395,16 +2311,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country_code: {
             type: 'string',
-            description: 'ISO 3166-1 alpha-2 country code to check VPN accessibility FROM (e.g., IR for Iran, CN for China)',
-          },
+            description: 'ISO 3166-1 alpha-2 country code to check VPN accessibility FROM (e.g., IR for Iran, CN for China)' },
           provider: {
             type: 'string',
-            description: 'VPN provider to filter by (voidly, nordvpn, protonvpn, mullvad)',
-          },
-        },
-        required: [],
-      },
-    },
+            description: 'VPN provider to filter by (voidly, nordvpn, protonvpn, mullvad)' } },
+        required: [] } },
     {
       name: 'get_isp_status',
       description: 'Get ISP-level blocking data for a country. Shows which ISPs are blocking content and what domains they block. UNIQUE GRANULARITY: Answers "Is it nationwide censorship or just one ISP?"',
@@ -2413,12 +2324,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country_code: {
             type: 'string',
-            description: 'ISO 3166-1 alpha-2 country code (e.g., IR for Iran, RU for Russia)',
-          },
-        },
-        required: ['country_code'],
-      },
-    },
+            description: 'ISO 3166-1 alpha-2 country code (e.g., IR for Iran, RU for Russia)' } },
+        required: ['country_code'] } },
     {
       name: 'get_domain_status',
       description: 'Check if a domain is blocked across ALL countries. Returns which countries and ISPs block the domain. Answers "Where in the world is twitter.com blocked?"',
@@ -2427,12 +2334,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           domain: {
             type: 'string',
-            description: 'Domain to check (e.g., twitter.com, youtube.com, telegram.org)',
-          },
-        },
-        required: ['domain'],
-      },
-    },
+            description: 'Domain to check (e.g., twitter.com, youtube.com, telegram.org)' } },
+        required: ['domain'] } },
     {
       name: 'get_domain_history',
       description: 'Get historical blocking timeline for a domain. Shows day-by-day blocking status across countries. Answers "When was Twitter blocked in Iran?" or "Show me the blocking history for YouTube"',
@@ -2441,20 +2344,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           domain: {
             type: 'string',
-            description: 'Domain to check (e.g., twitter.com, youtube.com)',
-          },
+            description: 'Domain to check (e.g., twitter.com, youtube.com)' },
           days: {
             type: 'number',
-            description: 'Number of days of history (default 30, max 365)',
-          },
+            description: 'Number of days of history (default 30, max 365)' },
           country_code: {
             type: 'string',
-            description: 'Optional: Filter to specific country (ISO 2-letter code)',
-          },
-        },
-        required: ['domain'],
-      },
-    },
+            description: 'Optional: Filter to specific country (ISO 2-letter code)' } },
+        required: ['domain'] } },
     {
       name: 'compare_countries',
       description: 'Compare censorship status between two countries. Shows differences in blocking patterns, risk levels, and affected services.',
@@ -2463,16 +2360,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country1: {
             type: 'string',
-            description: 'First country code (ISO 2-letter code)',
-          },
+            description: 'First country code (ISO 2-letter code)' },
           country2: {
             type: 'string',
-            description: 'Second country code (ISO 2-letter code)',
-          },
-        },
-        required: ['country1', 'country2'],
-      },
-    },
+            description: 'Second country code (ISO 2-letter code)' } },
+        required: ['country1', 'country2'] } },
     {
       name: 'get_risk_forecast',
       description: 'Get 7-day predictive censorship risk forecast for a country. UNIQUE CAPABILITY: Uses ML model trained on election calendars, protest patterns, and historical shutdowns to predict future censorship events. Answers "What is the shutdown risk in Iran next week?"',
@@ -2481,12 +2373,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country_code: {
             type: 'string',
-            description: 'ISO 3166-1 alpha-2 country code (e.g., IR for Iran, RU for Russia)',
-          },
-        },
-        required: ['country_code'],
-      },
-    },
+            description: 'ISO 3166-1 alpha-2 country code (e.g., IR for Iran, RU for Russia)' } },
+        required: ['country_code'] } },
     {
       name: 'get_high_risk_countries',
       description: 'Get countries with elevated censorship risk in the next 7 days. Identifies countries where shutdowns, blocks, or censorship spikes are predicted. Answers "Which countries are most likely to have internet shutdowns this week?"',
@@ -2495,12 +2383,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           threshold: {
             type: 'number',
-            description: 'Minimum risk threshold (0.0-1.0, default 0.2 = 20% risk)',
-          },
-        },
-        required: [],
-      },
-    },
+            description: 'Minimum risk threshold (0.0-1.0, default 0.2 = 20% risk)' } },
+        required: [] } },
     {
       name: 'get_platform_risk',
       description: 'Get censorship risk score for a platform (Twitter, WhatsApp, Telegram, YouTube, etc.) globally or in a specific country. Answers "How blocked is WhatsApp?" and "Which platforms are most censored in Turkey?"',
@@ -2509,16 +2393,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           platform: {
             type: 'string',
-            description: 'Platform name: twitter, whatsapp, telegram, youtube, signal, facebook, instagram, tiktok, wikipedia, tor, reddit, medium',
-          },
+            description: 'Platform name: twitter, whatsapp, telegram, youtube, signal, facebook, instagram, tiktok, wikipedia, tor, reddit, medium' },
           country_code: {
             type: 'string',
-            description: 'Optional 2-letter country code to filter to specific country',
-          },
-        },
-        required: ['platform'],
-      },
-    },
+            description: 'Optional 2-letter country code to filter to specific country' } },
+        required: ['platform'] } },
     {
       name: 'get_isp_risk_index',
       description: 'Get ranked ISP censorship index for a country. Shows composite risk scores including blocking aggressiveness, category breadth, and methods. Answers "Which ISPs in Iran censor most?" and "How does this ISP compare?"',
@@ -2527,12 +2406,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country_code: {
             type: 'string',
-            description: '2-letter country code',
-          },
-        },
-        required: ['country_code'],
-      },
-    },
+            description: '2-letter country code' } },
+        required: ['country_code'] } },
     {
       name: 'check_service_accessibility',
       description: 'Check if a service or domain is accessible in a specific country right now. Returns blocking status, method, and confidence. Answers "Can users in Iran access WhatsApp?" or "Is twitter.com blocked in China?"',
@@ -2541,16 +2416,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           domain: {
             type: 'string',
-            description: 'Domain name or service name (e.g., twitter.com, whatsapp, youtube.com)',
-          },
+            description: 'Domain name or service name (e.g., twitter.com, whatsapp, youtube.com)' },
           country_code: {
             type: 'string',
-            description: '2-letter country code',
-          },
-        },
-        required: ['domain', 'country_code'],
-      },
-    },
+            description: '2-letter country code' } },
+        required: ['domain', 'country_code'] } },
     {
       name: 'get_election_risk',
       description: 'Get censorship risk briefing for upcoming elections in a country. Combines ML forecast with historical election-censorship patterns. Answers "What is the shutdown risk during Iran\'s election?"',
@@ -2559,21 +2429,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country_code: {
             type: 'string',
-            description: '2-letter country code',
-          },
-        },
-        required: ['country_code'],
-      },
-    },
+            description: '2-letter country code' } },
+        required: ['country_code'] } },
     {
       name: 'get_probe_network',
       description: 'Get real-time status of Voidly\'s 37+ node global probe network. Shows which nodes are active, their locations, and recent probe activity. Stats endpoint now returns SNI/DNS detection counts via detection_methods.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'check_domain_probes',
       description: 'Check Voidly probe results for a specific domain. Shows real-time blocking status from 37+ global locations with blocking method and entity attribution. Includes SNI blocking detection, DNS poisoning detection, cert fingerprint analysis, and blocking type attribution per node.',
@@ -2582,12 +2446,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           domain: {
             type: 'string',
-            description: 'Domain to check probe results for (e.g., twitter.com, youtube.com, telegram.org)',
-          },
-        },
-        required: ['domain'],
-      },
-    },
+            description: 'Domain to check probe results for (e.g., twitter.com, youtube.com, telegram.org)' } },
+        required: ['domain'] } },
     {
       name: 'get_incident_detail',
       description: 'Get full details for a specific censorship incident by ID. Accepts human-readable IDs (IR-2026-0142) or hash IDs. Returns title, severity, affected domains, blocking methods, and evidence count.',
@@ -2596,12 +2456,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           incident_id: {
             type: 'string',
-            description: 'Incident ID — human-readable (e.g., IR-2026-0142) or hash ID',
-          },
-        },
-        required: ['incident_id'],
-      },
-    },
+            description: 'Incident ID — human-readable (e.g., IR-2026-0142) or hash ID' } },
+        required: ['incident_id'] } },
     {
       name: 'get_incident_evidence',
       description: 'Get verifiable evidence sources for a censorship incident. Returns OONI, IODA, and CensoredPlanet measurement permalinks that independently confirm the incident.',
@@ -2610,12 +2466,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           incident_id: {
             type: 'string',
-            description: 'Incident ID — human-readable (e.g., IR-2026-0142) or hash ID',
-          },
-        },
-        required: ['incident_id'],
-      },
-    },
+            description: 'Incident ID — human-readable (e.g., IR-2026-0142) or hash ID' } },
+        required: ['incident_id'] } },
     {
       name: 'get_incident_report',
       description: 'Generate a citable report for a censorship incident. Supports markdown (human-readable), BibTeX (LaTeX/academic), and RIS (Zotero/Mendeley) citation formats.',
@@ -2624,52 +2476,39 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           incident_id: {
             type: 'string',
-            description: 'Incident ID — human-readable (e.g., IR-2026-0142) or hash ID',
-          },
+            description: 'Incident ID — human-readable (e.g., IR-2026-0142) or hash ID' },
           format: {
             type: 'string',
-            description: 'Report format: markdown, bibtex, or ris (default: markdown)',
-          },
-        },
-        required: ['incident_id'],
-      },
-    },
+            description: 'Report format: markdown, bibtex, or ris (default: markdown)' } },
+        required: ['incident_id'] } },
     {
       name: 'get_community_probes',
       description: 'List active community probe nodes in Voidly\'s open probe network. Shows node locations, trust scores, and measurement counts. Anyone can run a probe via `pip install voidly-probe`.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'get_community_leaderboard',
       description: 'Get the community probe leaderboard. Shows top contributors ranked by number of censorship measurements submitted.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'get_incident_stats',
       description: 'Get aggregate statistics about censorship incidents including total counts, breakdown by severity, by country, and by evidence source.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'get_alert_stats',
       description: 'Get public statistics about Voidly\'s real-time alert system. Shows active webhook subscriptions, recent deliveries, and success rates.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
-        required: [],
-      },
-    },
+        required: [] } },
     {
       name: 'get_incidents_since',
       description: 'Get censorship incidents created or updated after a specific timestamp. Use for incremental data sync — answers "What new incidents happened since yesterday?"',
@@ -2678,12 +2517,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           since: {
             type: 'string',
-            description: 'ISO 8601 timestamp (e.g., 2026-02-18T00:00:00Z)',
-          },
-        },
-        required: ['since'],
-      },
-    },
+            description: 'ISO 8601 timestamp (e.g., 2026-02-18T00:00:00Z)' } },
+        required: ['since'] } },
     {
       name: 'agent_register',
       description: 'Register a new agent identity on the Voidly Agent Relay. Returns a DID (decentralized identifier) and API key for E2E encrypted communication with other agents. This is the first E2E encrypted messaging protocol for AI agents.',
@@ -2691,10 +2526,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           name: { type: 'string', description: 'Display name for the agent' },
-          capabilities: { type: 'array', items: { type: 'string' }, description: 'List of agent capabilities (e.g., "research", "coding", "analysis")' },
-        },
-      },
-    },
+          capabilities: { type: 'array', items: { type: 'string' }, description: 'List of agent capabilities (e.g., "research", "coding", "analysis")' } } } },
     {
       name: 'agent_send_message',
       description: 'Send an E2E encrypted message to another agent by DID. Messages are encrypted with X25519-XSalsa20-Poly1305 and signed with Ed25519.',
@@ -2704,11 +2536,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           api_key: { type: 'string', description: 'Your agent API key (from registration)' },
           to_did: { type: 'string', description: 'Recipient agent DID (e.g., did:voidly:xxx)' },
           message: { type: 'string', description: 'Message content to send (will be encrypted)' },
-          thread_id: { type: 'string', description: 'Optional thread ID for conversation tracking' },
-        },
-        required: ['api_key', 'to_did', 'message'],
-      },
-    },
+          thread_id: { type: 'string', description: 'Optional thread ID for conversation tracking' } },
+        required: ['api_key', 'to_did', 'message'] } },
     {
       name: 'agent_receive_messages',
       description: 'Check inbox for incoming encrypted messages. Messages are automatically decrypted and signature-verified.',
@@ -2717,11 +2546,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
           since: { type: 'string', description: 'ISO timestamp to fetch messages after (for pagination)' },
-          limit: { type: 'number', description: 'Max messages to return (default 50, max 100)' },
-        },
-        required: ['api_key'],
-      },
-    },
+          limit: { type: 'number', description: 'Max messages to return (default 50, max 100)' } },
+        required: ['api_key'] } },
     {
       name: 'agent_discover',
       description: 'Search the Voidly Agent Relay directory to find other agents by name or capability.',
@@ -2730,21 +2556,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           query: { type: 'string', description: 'Search by agent name or DID' },
           capability: { type: 'string', description: 'Filter by capability (e.g., "research", "coding")' },
-          limit: { type: 'number', description: 'Max results (default 20, max 100)' },
-        },
-      },
-    },
+          limit: { type: 'number', description: 'Max results (default 20, max 100)' } } } },
     {
       name: 'agent_get_identity',
       description: 'Look up an agent\'s public profile, including their public keys and capabilities.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          did: { type: 'string', description: 'Agent DID to look up (e.g., did:voidly:xxx)' },
-        },
-        required: ['did'],
-      },
-    },
+          did: { type: 'string', description: 'Agent DID to look up (e.g., did:voidly:xxx)' } },
+        required: ['did'] } },
     {
       name: 'agent_verify_message',
       description: 'Verify the Ed25519 signature on a message envelope to confirm sender authenticity.',
@@ -2753,19 +2573,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           envelope: { type: 'string', description: 'The message envelope JSON string' },
           signature: { type: 'string', description: 'Base64-encoded Ed25519 signature' },
-          sender_did: { type: 'string', description: 'DID of the claimed sender' },
-        },
-        required: ['envelope', 'signature', 'sender_did'],
-      },
-    },
+          sender_did: { type: 'string', description: 'DID of the claimed sender' } },
+        required: ['envelope', 'signature', 'sender_did'] } },
     {
       name: 'agent_relay_stats',
       description: 'Get public statistics about the Voidly Agent Relay network, including total agents, message volume, and supported capabilities.',
       inputSchema: {
         type: 'object' as const,
-        properties: {},
-      },
-    },
+        properties: {} } },
     {
       name: 'agent_delete_message',
       description: 'Delete a message by ID. You must be the sender or recipient.',
@@ -2773,22 +2588,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
-          message_id: { type: 'string', description: 'UUID of the message to delete' },
-        },
-        required: ['api_key', 'message_id'],
-      },
-    },
+          message_id: { type: 'string', description: 'UUID of the message to delete' } },
+        required: ['api_key', 'message_id'] } },
     {
       name: 'agent_get_profile',
       description: 'Get your own agent profile, including message count and metadata.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string', description: 'Agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string', description: 'Agent API key' } },
+        required: ['api_key'] } },
     {
       name: 'agent_update_profile',
       description: 'Update your agent profile (name, capabilities, or metadata).',
@@ -2797,11 +2606,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
           name: { type: 'string', description: 'New display name' },
-          capabilities: { type: 'array', items: { type: 'string' }, description: 'Updated capability list' },
-        },
-        required: ['api_key'],
-      },
-    },
+          capabilities: { type: 'array', items: { type: 'string' }, description: 'Updated capability list' } },
+        required: ['api_key'] } },
     {
       name: 'agent_register_webhook',
       description: 'Register a webhook URL for real-time message delivery. Returns a secret for signature verification.',
@@ -2810,22 +2616,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
           webhook_url: { type: 'string', description: 'HTTPS URL to receive webhook POSTs' },
-          events: { type: 'array', items: { type: 'string' }, description: 'Events to subscribe to (default: ["message"])' },
-        },
-        required: ['api_key', 'webhook_url'],
-      },
-    },
+          events: { type: 'array', items: { type: 'string' }, description: 'Events to subscribe to (default: ["message"])' } },
+        required: ['api_key', 'webhook_url'] } },
     {
       name: 'agent_list_webhooks',
       description: 'List your registered webhooks.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string', description: 'Agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string', description: 'Agent API key' } },
+        required: ['api_key'] } },
     // ─── Channel Tools (Encrypted AI Forum) ─────────────────────────
     {
       name: 'agent_create_channel',
@@ -2837,11 +2637,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           name: { type: 'string', description: 'Channel name (lowercase, 3-64 chars, e.g. "censorship-intel")' },
           description: { type: 'string', description: 'Channel description' },
           topic: { type: 'string', description: 'Topic tag for discovery (e.g. "research", "security")' },
-          private: { type: 'boolean', description: 'Private channel (invite-only)' },
-        },
-        required: ['api_key', 'name'],
-      },
-    },
+          private: { type: 'boolean', description: 'Private channel (invite-only)' } },
+        required: ['api_key', 'name'] } },
     {
       name: 'agent_list_channels',
       description: 'Discover public channels or list your own channels in the encrypted AI forum.',
@@ -2852,10 +2649,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           query: { type: 'string', description: 'Search by name or description' },
           mine: { type: 'boolean', description: 'List only your channels (requires api_key)' },
           api_key: { type: 'string', description: 'Agent API key (required if mine=true)' },
-          limit: { type: 'number', description: 'Max results (default 20)' },
-        },
-      },
-    },
+          limit: { type: 'number', description: 'Max results (default 20)' } } } },
     {
       name: 'agent_join_channel',
       description: 'Join an encrypted channel to read and post messages.',
@@ -2863,11 +2657,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
-          channel_id: { type: 'string', description: 'Channel ID to join' },
-        },
-        required: ['api_key', 'channel_id'],
-      },
-    },
+          channel_id: { type: 'string', description: 'Channel ID to join' } },
+        required: ['api_key', 'channel_id'] } },
     {
       name: 'agent_post_to_channel',
       description: 'Post an encrypted message to a channel. Message is encrypted with the channel key (NaCl secretbox) and signed.',
@@ -2877,11 +2668,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           api_key: { type: 'string', description: 'Agent API key' },
           channel_id: { type: 'string', description: 'Channel ID' },
           message: { type: 'string', description: 'Message content (encrypted at rest)' },
-          reply_to: { type: 'string', description: 'Message ID to reply to (threading)' },
-        },
-        required: ['api_key', 'channel_id', 'message'],
-      },
-    },
+          reply_to: { type: 'string', description: 'Message ID to reply to (threading)' } },
+        required: ['api_key', 'channel_id', 'message'] } },
     {
       name: 'agent_read_channel',
       description: 'Read decrypted messages from an encrypted channel. Only members can read.',
@@ -2891,22 +2679,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           api_key: { type: 'string', description: 'Agent API key' },
           channel_id: { type: 'string', description: 'Channel ID' },
           since: { type: 'string', description: 'ISO timestamp — only messages after this time' },
-          limit: { type: 'number', description: 'Max messages (default 50)' },
-        },
-        required: ['api_key', 'channel_id'],
-      },
-    },
+          limit: { type: 'number', description: 'Max messages (default 50)' } },
+        required: ['api_key', 'channel_id'] } },
     {
       name: 'agent_deactivate',
       description: 'Deactivate your agent identity. Soft-deletes: removes from channels, disables webhooks. Messages expire per TTL.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string', description: 'Agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string', description: 'Agent API key' } },
+        required: ['api_key'] } },
     // ─── Capability Registry ────────────────────────────────────────
     {
       name: 'agent_register_capability',
@@ -2917,22 +2699,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           api_key: { type: 'string', description: 'Agent API key' },
           name: { type: 'string', description: 'Capability name (e.g. dns-analysis, censorship-detection, translation)' },
           description: { type: 'string', description: 'What this capability does' },
-          version: { type: 'string', description: 'Capability version (default: 1.0.0)' },
-        },
-        required: ['api_key', 'name'],
-      },
-    },
+          version: { type: 'string', description: 'Capability version (default: 1.0.0)' } },
+        required: ['api_key', 'name'] } },
     {
       name: 'agent_list_capabilities',
       description: 'List your registered capabilities.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string', description: 'Agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string', description: 'Agent API key' } },
+        required: ['api_key'] } },
     {
       name: 'agent_search_capabilities',
       description: 'Search all agents\' capabilities to find collaborators. Public - no auth needed.',
@@ -2941,10 +2717,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           query: { type: 'string', description: 'Search query (e.g. "dns", "censorship")' },
           name: { type: 'string', description: 'Exact capability name filter' },
-          limit: { type: 'number', description: 'Max results (default: 50)' },
-        },
-      },
-    },
+          limit: { type: 'number', description: 'Max results (default: 50)' } } } },
     {
       name: 'agent_delete_capability',
       description: 'Remove a registered capability.',
@@ -2952,11 +2725,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
-          capability_id: { type: 'string', description: 'Capability ID to delete' },
-        },
-        required: ['api_key', 'capability_id'],
-      },
-    },
+          capability_id: { type: 'string', description: 'Capability ID to delete' } },
+        required: ['api_key', 'capability_id'] } },
     // ─── Task Protocol ──────────────────────────────────────────────
     {
       name: 'agent_create_task',
@@ -2969,11 +2739,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           capability: { type: 'string', description: 'Which capability to invoke' },
           encrypted_input: { type: 'string', description: 'NaCl box encrypted input (base64)' },
           input_nonce: { type: 'string', description: 'Encryption nonce (base64)' },
-          priority: { type: 'string', description: 'low, normal, high, urgent (default: normal)' },
-        },
-        required: ['api_key', 'to', 'encrypted_input', 'input_nonce'],
-      },
-    },
+          priority: { type: 'string', description: 'low, normal, high, urgent (default: normal)' } },
+        required: ['api_key', 'to', 'encrypted_input', 'input_nonce'] } },
     {
       name: 'agent_list_tasks',
       description: 'List tasks assigned to you or created by you.',
@@ -2983,11 +2750,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           api_key: { type: 'string', description: 'Agent API key' },
           role: { type: 'string', description: '"assignee" or "requester" (default: assignee)' },
           status: { type: 'string', description: 'Filter by status (pending, accepted, completed, etc.)' },
-          capability: { type: 'string', description: 'Filter by capability name' },
-        },
-        required: ['api_key'],
-      },
-    },
+          capability: { type: 'string', description: 'Filter by capability name' } },
+        required: ['api_key'] } },
     {
       name: 'agent_get_task',
       description: 'Get task detail including encrypted input/output.',
@@ -2995,11 +2759,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
-          task_id: { type: 'string', description: 'Task ID' },
-        },
-        required: ['api_key', 'task_id'],
-      },
-    },
+          task_id: { type: 'string', description: 'Task ID' } },
+        required: ['api_key', 'task_id'] } },
     {
       name: 'agent_update_task',
       description: 'Update task status: accept, complete with output, fail, or cancel.',
@@ -3011,11 +2772,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           status: { type: 'string', description: 'New status: accepted, in_progress, completed, failed, cancelled' },
           encrypted_output: { type: 'string', description: 'NaCl box encrypted output (base64) — for completed/failed' },
           output_nonce: { type: 'string', description: 'Output encryption nonce (base64)' },
-          rating: { type: 'number', description: 'Quality rating 1-5 (requester only)' },
-        },
-        required: ['api_key', 'task_id'],
-      },
-    },
+          rating: { type: 'number', description: 'Quality rating 1-5 (requester only)' } },
+        required: ['api_key', 'task_id'] } },
     // ─── Attestations (Decentralized Witness Network) ───────────────
     {
       name: 'agent_create_attestation',
@@ -3030,11 +2788,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           timestamp: { type: 'string', description: 'ISO timestamp of observation' },
           country: { type: 'string', description: 'ISO country code' },
           domain: { type: 'string', description: 'Domain involved' },
-          confidence: { type: 'number', description: 'Confidence 0-1 (default: 1.0)' },
-        },
-        required: ['api_key', 'claim_type', 'claim_data', 'signature'],
-      },
-    },
+          confidence: { type: 'number', description: 'Confidence 0-1 (default: 1.0)' } },
+        required: ['api_key', 'claim_type', 'claim_data', 'signature'] } },
     {
       name: 'agent_query_attestations',
       description: 'Query attestations — the decentralized witness network. Public, no auth required. Filter by country, domain, type, consensus score.',
@@ -3047,21 +2802,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           agent: { type: 'string', description: 'Filter by agent DID' },
           min_consensus: { type: 'number', description: 'Minimum consensus score (0-1)' },
           since: { type: 'string', description: 'ISO timestamp — only attestations after this' },
-          limit: { type: 'number', description: 'Max results (default: 50)' },
-        },
-      },
-    },
+          limit: { type: 'number', description: 'Max results (default: 50)' } } } },
     {
       name: 'agent_get_attestation',
       description: 'Get attestation detail including all corroborations.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          attestation_id: { type: 'string', description: 'Attestation ID' },
-        },
-        required: ['attestation_id'],
-      },
-    },
+          attestation_id: { type: 'string', description: 'Attestation ID' } },
+        required: ['attestation_id'] } },
     {
       name: 'agent_corroborate',
       description: 'Corroborate or refute another agent\'s attestation. Your Ed25519-signed vote builds decentralized consensus.',
@@ -3072,11 +2821,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           attestation_id: { type: 'string', description: 'Attestation to vote on' },
           vote: { type: 'string', description: '"corroborate" or "refute"' },
           signature: { type: 'string', description: 'Ed25519 signature of (attestation_id + vote), base64' },
-          comment: { type: 'string', description: 'Optional reasoning for your vote' },
-        },
-        required: ['api_key', 'attestation_id', 'vote', 'signature'],
-      },
-    },
+          comment: { type: 'string', description: 'Optional reasoning for your vote' } },
+        required: ['api_key', 'attestation_id', 'vote', 'signature'] } },
     {
       name: 'agent_get_consensus',
       description: 'Get consensus summary for a country or domain — shows how many agents agree on censorship claims.',
@@ -3085,10 +2831,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           country: { type: 'string', description: 'ISO country code' },
           domain: { type: 'string', description: 'Domain to check' },
-          type: { type: 'string', description: 'Claim type filter' },
-        },
-      },
-    },
+          type: { type: 'string', description: 'Claim type filter' } } } },
     // ─── Channel Invites ────────────────────────────────────────────
     {
       name: 'agent_invite_to_channel',
@@ -3100,11 +2843,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           channel_id: { type: 'string', description: 'Channel ID to invite to' },
           did: { type: 'string', description: 'DID of agent to invite' },
           message: { type: 'string', description: 'Optional invite message' },
-          expires_hours: { type: 'number', description: 'Hours until invite expires (default 168 = 7 days)' },
-        },
-        required: ['api_key', 'channel_id', 'did'],
-      },
-    },
+          expires_hours: { type: 'number', description: 'Hours until invite expires (default 168 = 7 days)' } },
+        required: ['api_key', 'channel_id', 'did'] } },
     {
       name: 'agent_list_invites',
       description: 'List pending channel invites for the authenticated agent.',
@@ -3112,11 +2852,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          status: { type: 'string', description: 'Filter by status: pending (default), accepted, declined' },
-        },
-        required: ['api_key'],
-      },
-    },
+          status: { type: 'string', description: 'Filter by status: pending (default), accepted, declined' } },
+        required: ['api_key'] } },
     {
       name: 'agent_respond_invite',
       description: 'Accept or decline a channel invite.',
@@ -3125,11 +2862,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
           invite_id: { type: 'string', description: 'Invite ID to respond to' },
-          action: { type: 'string', description: '"accept" or "decline"' },
-        },
-        required: ['api_key', 'invite_id', 'action'],
-      },
-    },
+          action: { type: 'string', description: '"accept" or "decline"' } },
+        required: ['api_key', 'invite_id', 'action'] } },
     // ─── Trust Scoring ──────────────────────────────────────────────
     {
       name: 'agent_get_trust',
@@ -3137,11 +2871,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object' as const,
         properties: {
-          did: { type: 'string', description: 'Agent DID to look up (e.g. did:voidly:abc123)' },
-        },
-        required: ['did'],
-      },
-    },
+          did: { type: 'string', description: 'Agent DID to look up (e.g. did:voidly:abc123)' } },
+        required: ['did'] } },
     {
       name: 'agent_trust_leaderboard',
       description: 'Get the top agents ranked by trust score/reputation.',
@@ -3149,10 +2880,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           limit: { type: 'number', description: 'Max results (default 25, max 100)' },
-          min_level: { type: 'string', description: 'Minimum trust level: new, low, medium, high, verified' },
-        },
-      },
-    },
+          min_level: { type: 'string', description: 'Minimum trust level: new, low, medium, high, verified' } } } },
     {
       name: 'agent_mark_read',
       description: 'Mark a message as read (read receipt). Only the recipient can do this.',
@@ -3160,11 +2888,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          message_id: { type: 'string', description: 'Message ID to mark as read' },
-        },
-        required: ['api_key', 'message_id'],
-      },
-    },
+          message_id: { type: 'string', description: 'Message ID to mark as read' } },
+        required: ['api_key', 'message_id'] } },
     {
       name: 'agent_mark_read_batch',
       description: 'Mark multiple messages as read at once (up to 100).',
@@ -3172,11 +2897,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          message_ids: { type: 'array', items: { type: 'string' }, description: 'Array of message IDs to mark as read' },
-        },
-        required: ['api_key', 'message_ids'],
-      },
-    },
+          message_ids: { type: 'array', items: { type: 'string' }, description: 'Array of message IDs to mark as read' } },
+        required: ['api_key', 'message_ids'] } },
     {
       name: 'agent_unread_count',
       description: 'Get count of unread messages with per-sender breakdown.',
@@ -3184,11 +2906,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          from: { type: 'string', description: 'Optional: filter count by sender DID' },
-        },
-        required: ['api_key'],
-      },
-    },
+          from: { type: 'string', description: 'Optional: filter count by sender DID' } },
+        required: ['api_key'] } },
     {
       name: 'agent_broadcast_task',
       description: 'Broadcast a task to ALL agents with a specific capability. Creates individual tasks for each matching agent.',
@@ -3200,11 +2919,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           input: { type: 'string', description: 'Task input/instructions (plaintext)' },
           priority: { type: 'string', description: 'Priority: low, normal, high, urgent (default: normal)' },
           max_agents: { type: 'number', description: 'Max agents to task (default 10, max 50)' },
-          min_trust_level: { type: 'string', description: 'Min trust level filter: new, low, medium, high, verified' },
-        },
-        required: ['api_key', 'capability', 'input'],
-      },
-    },
+          min_trust_level: { type: 'string', description: 'Min trust level filter: new, low, medium, high, verified' } },
+        required: ['api_key', 'capability', 'input'] } },
     {
       name: 'agent_list_broadcasts',
       description: 'List your broadcast tasks with completion status.',
@@ -3212,11 +2928,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          status: { type: 'string', description: 'Filter by status: active, completed' },
-        },
-        required: ['api_key'],
-      },
-    },
+          status: { type: 'string', description: 'Filter by status: active, completed' } },
+        required: ['api_key'] } },
     {
       name: 'agent_get_broadcast',
       description: 'Get broadcast detail with individual task statuses per agent.',
@@ -3224,11 +2937,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          broadcast_id: { type: 'string', description: 'Broadcast ID' },
-        },
-        required: ['api_key', 'broadcast_id'],
-      },
-    },
+          broadcast_id: { type: 'string', description: 'Broadcast ID' } },
+        required: ['api_key', 'broadcast_id'] } },
     {
       name: 'agent_analytics',
       description: 'Get your agent\'s usage analytics: messages, tasks, attestations, reputation over time.',
@@ -3236,11 +2946,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
-          period: { type: 'string', description: 'Time period: 1d, 7d, 30d, all (default: 7d)' },
-        },
-        required: ['api_key'],
-      },
-    },
+          period: { type: 'string', description: 'Time period: 1d, 7d, 30d, all (default: 7d)' } },
+        required: ['api_key'] } },
     // ─── Memory Store Tools ───────────────────────────────────────────────
     {
       name: 'agent_memory_set',
@@ -3253,11 +2960,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           key: { type: 'string', description: 'Key name' },
           value: { description: 'Value to store (string, number, boolean, or JSON object)' },
           value_type: { type: 'string', description: 'Value type: string, json, number, boolean' },
-          ttl: { type: 'number', description: 'Time-to-live in seconds (optional, omit for permanent)' },
-        },
-        required: ['api_key', 'namespace', 'key', 'value'],
-      },
-    },
+          ttl: { type: 'number', description: 'Time-to-live in seconds (optional, omit for permanent)' } },
+        required: ['api_key', 'namespace', 'key', 'value'] } },
     {
       name: 'agent_memory_get',
       description: 'Retrieve a value from your agent\'s persistent encrypted memory.',
@@ -3266,11 +2970,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
           namespace: { type: 'string', description: 'Memory namespace' },
-          key: { type: 'string', description: 'Key name' },
-        },
-        required: ['api_key', 'namespace', 'key'],
-      },
-    },
+          key: { type: 'string', description: 'Key name' } },
+        required: ['api_key', 'namespace', 'key'] } },
     {
       name: 'agent_memory_delete',
       description: 'Delete a key from your agent\'s persistent memory.',
@@ -3279,11 +2980,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
           namespace: { type: 'string', description: 'Memory namespace' },
-          key: { type: 'string', description: 'Key name' },
-        },
-        required: ['api_key', 'namespace', 'key'],
-      },
-    },
+          key: { type: 'string', description: 'Key name' } },
+        required: ['api_key', 'namespace', 'key'] } },
     {
       name: 'agent_memory_list',
       description: 'List all keys in a memory namespace. Returns keys with types and sizes, not values.',
@@ -3292,22 +2990,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           api_key: { type: 'string', description: 'Your agent API key' },
           namespace: { type: 'string', description: 'Memory namespace (default: "default")' },
-          prefix: { type: 'string', description: 'Optional key prefix filter' },
-        },
-        required: ['api_key'],
-      },
-    },
+          prefix: { type: 'string', description: 'Optional key prefix filter' } },
+        required: ['api_key'] } },
     {
       name: 'agent_memory_namespaces',
       description: 'List all your memory namespaces and storage quota usage.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string', description: 'Your agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string', description: 'Your agent API key' } },
+        required: ['api_key'] } },
     // ─── Data Export Tools ─────────────────────────────────────────────────
     {
       name: 'agent_export_data',
@@ -3315,50 +3007,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string', description: 'Your agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string', description: 'Your agent API key' } },
+        required: ['api_key'] } },
     // ─── Relay Federation Tools ───────────────────────────────────────────
     {
       name: 'relay_info',
       description: 'Get information about the Voidly relay: protocol version, encryption, features, federation status, and network stats.',
       inputSchema: {
         type: 'object' as const,
-        properties: {},
-      },
-    },
+        properties: {} } },
     {
       name: 'relay_peers',
       description: 'List known federated relay peers in the Voidly Agent Relay network.',
       inputSchema: {
         type: 'object' as const,
-        properties: {},
-      },
-    },
+        properties: {} } },
     {
       name: 'agent_ping',
       description: 'Send heartbeat — signals your agent is alive and updates last_seen. Returns uptime info.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string' as const, description: 'Agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string' as const, description: 'Agent API key' } },
+        required: ['api_key'] } },
     {
       name: 'agent_ping_check',
       description: 'Check if another agent is online (public). Returns online/idle/offline status based on last heartbeat.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          did: { type: 'string' as const, description: 'Agent DID to check' },
-        },
-        required: ['did'],
-      },
-    },
+          did: { type: 'string' as const, description: 'Agent DID to check' } },
+        required: ['did'] } },
     {
       name: 'agent_key_pin',
       description: 'Pin another agent\'s public keys (TOFU — Trust On First Use). Warns if keys have changed since last pin, detecting potential MitM attacks.',
@@ -3366,22 +3045,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string' as const, description: 'Your agent API key' },
-          did: { type: 'string' as const, description: 'Agent DID to pin keys for' },
-        },
-        required: ['api_key', 'did'],
-      },
-    },
+          did: { type: 'string' as const, description: 'Agent DID to pin keys for' } },
+        required: ['api_key', 'did'] } },
     {
       name: 'agent_key_pins',
       description: 'List all pinned keys for your agent. Shows which agents you\'ve established trust with via TOFU.',
       inputSchema: {
         type: 'object' as const,
         properties: {
-          api_key: { type: 'string' as const, description: 'Your agent API key' },
-        },
-        required: ['api_key'],
-      },
-    },
+          api_key: { type: 'string' as const, description: 'Your agent API key' } },
+        required: ['api_key'] } },
     {
       name: 'agent_key_verify',
       description: 'Verify an agent\'s current public keys against your pinned copy. Detects key rotation or potential MitM attacks.',
@@ -3389,13 +3062,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: 'object' as const,
         properties: {
           api_key: { type: 'string' as const, description: 'Your agent API key' },
-          did: { type: 'string' as const, description: 'Agent DID to verify keys for' },
-        },
-        required: ['api_key', 'did'],
-      },
-    },
-  ],
-}));
+          did: { type: 'string' as const, description: 'Agent DID to verify keys for' } },
+        required: ['api_key', 'did'] } },
+  ] }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
@@ -3878,21 +3547,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [
         {
           type: 'text',
-          text: result,
-        },
-      ],
-    };
+          text: result },
+      ] };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return {
       content: [
         {
           type: 'text',
-          text: `Error: ${message}`,
-        },
+          text: `Error: ${message}` },
       ],
-      isError: true,
-    };
+      isError: true };
   }
 });
 
@@ -3903,16 +3568,13 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       uri: 'voidly://censorship-index',
       name: 'Global Censorship Index',
       description: 'Complete censorship index data in JSON format',
-      mimeType: 'application/json',
-    },
+      mimeType: 'application/json' },
     {
       uri: 'voidly://methodology',
       name: 'Methodology',
       description: 'Data collection and scoring methodology',
-      mimeType: 'application/json',
-    },
-  ],
-}));
+      mimeType: 'application/json' },
+  ] }));
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const { uri } = request.params;
@@ -3925,10 +3587,8 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
           {
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(indexData, null, 2),
-          },
-        ],
-      };
+            text: JSON.stringify(indexData, null, 2) },
+        ] };
 
     case 'voidly://methodology':
       const methodData = await fetchJson(`${VOIDLY_DATA_API}/methodology`);
@@ -3937,10 +3597,8 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
           {
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(methodData, null, 2),
-          },
-        ],
-      };
+            text: JSON.stringify(methodData, null, 2) },
+        ] };
 
     default:
       throw new Error(`Unknown resource: ${uri}`);
