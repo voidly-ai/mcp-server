@@ -1,7 +1,7 @@
 {
   "name": "@voidly/mcp-server",
   "mcpName": "io.github.EmperorMew/voidly-mcp-server",
-  "version": "2.9.1",
+  "version": "2.9.3",
   "description": "83-tool MCP server: censorship intelligence (119 countries, 19.6M measurements) + E2E encrypted agent-to-agent messaging (Double Ratchet, X3DH, post-quantum)",
   "type": "module",
   "main": "dist/index.js",

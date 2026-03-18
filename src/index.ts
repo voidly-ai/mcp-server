@@ -39,7 +39,7 @@ const COUNTRY_NAMES: Record<string, string> = {
   NZ: 'New Zealand', HK: 'Hong Kong', TW: 'Taiwan', SG: 'Singapore' };
 
 // MCP server version — used in User-Agent and server metadata
-const MCP_VERSION = '2.9.1';
+const MCP_VERSION = '2.9.3';
 
 // Fetch helper with error handling and timeout
 async function fetchJson<T>(url: string): Promise<T> {
@@ -1792,11 +1792,11 @@ async function agentDeleteCapability(apiKey: string, capabilityId: string): Prom
 
 // ─── Task Protocol Helpers ───────────────────────────────────────────────────
 
-async function agentCreateTask(apiKey: string, to: string, capability: string, encryptedInput: string, inputNonce: string, priority?: string): Promise<string> {
+async function agentCreateTask(apiKey: string, to: string, capability: string, input: string, priority?: string): Promise<string> {
   const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey},
-    body: JSON.stringify({ to, capability, encrypted_input: encryptedInput, input_nonce: inputNonce, priority }) });
+    body: JSON.stringify({ to, capability, input, priority }) });
   if (!response.ok) { const err = await safeJson(response); throw new Error(`Task creation failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   return `# Task Created\n\n- **ID:** \`${data.id}\`\n- **To:** \`${data.to}\`\n- **Capability:** ${data.capability || 'general'}\n- **Priority:** ${data.priority}\n- **Status:** ${data.status}`;
@@ -1824,10 +1824,10 @@ async function agentGetTask(apiKey: string, taskId: string): Promise<string> {
   return `# Task Detail\n\n- **ID:** \`${t.id}\`\n- **From:** \`${t.from}\`\n- **To:** \`${t.to}\`\n- **Capability:** ${t.capability || 'general'}\n- **Status:** ${t.status}\n- **Priority:** ${t.priority}\n- **Created:** ${t.created_at}\n- **Has Input:** ${!!t.encrypted_input}\n- **Has Output:** ${!!t.encrypted_output}\n- **Rating:** ${t.rating || 'none'}`;
 }
 
-async function agentUpdateTask(apiKey: string, taskId: string, status?: string, encryptedOutput?: string, outputNonce?: string, rating?: number): Promise<string> {
+async function agentUpdateTask(apiKey: string, taskId: string, status?: string, output?: string, rating?: number): Promise<string> {
   const body: any = {};
   if (status) body.status = status;
-  if (encryptedOutput) { body.encrypted_output = encryptedOutput; body.output_nonce = outputNonce; }
+  if (output) body.output = output;
   if (rating !== undefined) body.rating = rating;
   const response = await agentFetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
     method: 'PATCH',
@@ -2730,17 +2730,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     // ─── Task Protocol ──────────────────────────────────────────────
     {
       name: 'agent_create_task',
-      description: 'Create an encrypted task for another agent. Find agents via capability search, then delegate work.',
+      description: 'Create a task for another agent. Find agents via capability search, then delegate work. Input is sent as plaintext via server-side encryption.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
           to: { type: 'string', description: 'Recipient agent DID' },
           capability: { type: 'string', description: 'Which capability to invoke' },
-          encrypted_input: { type: 'string', description: 'NaCl box encrypted input (base64)' },
-          input_nonce: { type: 'string', description: 'Encryption nonce (base64)' },
+          input: { type: 'string', description: 'Task input/instructions (plaintext — encrypted server-side)' },
           priority: { type: 'string', description: 'low, normal, high, urgent (default: normal)' } },
-        required: ['api_key', 'to', 'encrypted_input', 'input_nonce'] } },
+        required: ['api_key', 'to', 'input'] } },
     {
       name: 'agent_list_tasks',
       description: 'List tasks assigned to you or created by you.',
@@ -2770,26 +2769,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           api_key: { type: 'string', description: 'Agent API key' },
           task_id: { type: 'string', description: 'Task ID' },
           status: { type: 'string', description: 'New status: accepted, in_progress, completed, failed, cancelled' },
-          encrypted_output: { type: 'string', description: 'NaCl box encrypted output (base64) — for completed/failed' },
-          output_nonce: { type: 'string', description: 'Output encryption nonce (base64)' },
+          output: { type: 'string', description: 'Task output/result (plaintext — encrypted server-side)' },
           rating: { type: 'number', description: 'Quality rating 1-5 (requester only)' } },
         required: ['api_key', 'task_id'] } },
     // ─── Attestations (Decentralized Witness Network) ───────────────
     {
       name: 'agent_create_attestation',
-      description: 'Create a signed attestation — a verifiable claim about internet censorship. Signature is Ed25519 and publicly verifiable.',
+      description: 'Create an attestation — a claim about internet censorship linked to your agent identity. No client-side crypto required.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           api_key: { type: 'string', description: 'Agent API key' },
           claim_type: { type: 'string', description: 'Claim type: domain-blocked, service-accessible, network-interference, dns-poisoning, content-filtered, throttling, tls-interception, ip-blocked, protocol-blocked, shutdown' },
           claim_data: { type: 'object', description: 'JSON claim data (domain, country, method, evidence)' },
-          signature: { type: 'string', description: 'Ed25519 signature of (claim_type + JSON(claim_data) + timestamp), base64' },
           timestamp: { type: 'string', description: 'ISO timestamp of observation' },
           country: { type: 'string', description: 'ISO country code' },
           domain: { type: 'string', description: 'Domain involved' },
           confidence: { type: 'number', description: 'Confidence 0-1 (default: 1.0)' } },
-        required: ['api_key', 'claim_type', 'claim_data', 'signature'] } },
+        required: ['api_key', 'claim_type', 'claim_data'] } },
     {
       name: 'agent_query_attestations',
       description: 'Query attestations — the decentralized witness network. Public, no auth required. Filter by country, domain, type, consensus score.',
@@ -3364,8 +3361,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ─── Task Protocol ──────────────────────────────────────────
       case 'agent_create_task':
-        if (!args?.api_key || !args?.to || !args?.encrypted_input || !args?.input_nonce) throw new Error('api_key, to, encrypted_input, and input_nonce are required');
-        result = await agentCreateTask(args.api_key as string, args.to as string, args.capability as string, args.encrypted_input as string, args.input_nonce as string, args.priority as string);
+        if (!args?.api_key || !args?.to || !args?.input) throw new Error('api_key, to, and input are required');
+        result = await agentCreateTask(args.api_key as string, args.to as string, args.capability as string, args.input as string, args.priority as string);
         break;
 
       case 'agent_list_tasks':
@@ -3380,12 +3377,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'agent_update_task':
         if (!args?.api_key || !args?.task_id) throw new Error('api_key and task_id are required');
-        result = await agentUpdateTask(args.api_key as string, args.task_id as string, args.status as string, args.encrypted_output as string, args.output_nonce as string, args.rating as number);
+        result = await agentUpdateTask(args.api_key as string, args.task_id as string, args.status as string, args.output as string, args.rating as number);
         break;
 
       // ─── Attestations ───────────────────────────────────────────
       case 'agent_create_attestation':
-        if (!args?.api_key || !args?.claim_type || !args?.claim_data || !args?.signature) throw new Error('api_key, claim_type, claim_data, and signature are required');
+        if (!args?.api_key || !args?.claim_type || !args?.claim_data) throw new Error('api_key, claim_type, and claim_data are required');
         result = await agentCreateAttestation(args.api_key as string, args as any);
         break;
 
