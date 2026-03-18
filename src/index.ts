@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Voidly MCP Server
  *
@@ -41,20 +40,47 @@ const COUNTRY_NAMES: Record<string, string> = {
   NZ: 'New Zealand', HK: 'Hong Kong', TW: 'Taiwan', SG: 'Singapore',
 };
 
-// Fetch helper with error handling
+// MCP server version — used in User-Agent and server metadata
+const MCP_VERSION = '2.9.1';
+
+// Fetch helper with error handling and timeout
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Voidly-MCP-Server/1.0',
-      'Accept': 'application/json',
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`API request failed: ${response.status} ${response.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    }
+
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  return response.json() as Promise<T>;
+// Agent relay fetch helper with timeout and auth
+async function agentFetch(url: string, options: RequestInit & { headers?: Record<string, string> } = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const headers = {
+      'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
+      ...options.headers,
+    };
+    const response = await fetch(url, { ...options, headers, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Tool implementations
@@ -364,7 +390,7 @@ async function checkVpnAccessibility(countryCode?: string, provider?: string): P
   }
 
   result += `\n## Source\n`;
-  result += `Data: Voidly Probe Network (16 global nodes)\n`;
+  result += `Data: Voidly Probe Network (37+ global nodes)\n`;
   result += `Unique: Only Voidly provides global VPN accessibility data\n`;
   result += `License: CC BY 4.0\n`;
 
@@ -373,17 +399,17 @@ async function checkVpnAccessibility(countryCode?: string, provider?: string): P
 
 async function verifyClaim(claim: string, requireEvidence: boolean = false): Promise<string> {
   // Use POST for verify-claim
-  const response = await fetch(`${VOIDLY_API}/verify-claim`, {
+  const response = await agentFetch(`${VOIDLY_API}/verify-claim`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'User-Agent': 'Voidly-MCP-Server/1.0',
     },
     body: JSON.stringify({ claim, require_evidence: requireEvidence }),
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    const body = await response.text().catch(() => '');
+    throw new Error(`API request failed: ${response.status} ${response.statusText}${body ? ` — ${body.slice(0, 200)}` : ''}`);
   }
 
   const data = await response.json() as {
@@ -1041,7 +1067,7 @@ async function getProbeNetwork(): Promise<string> {
   }
 
   result += `\n## Source\n`;
-  result += `Data: Voidly Probe Network (16 global nodes)\n`;
+  result += `Data: Voidly Probe Network (37+ global nodes)\n`;
   result += `License: CC BY 4.0\n`;
 
   return result;
@@ -1103,7 +1129,7 @@ async function checkDomainProbes(domain: string): Promise<string> {
   }
 
   result += `\n## Source\n`;
-  result += `Data: Voidly Probe Network (16 global nodes)\n`;
+  result += `Data: Voidly Probe Network (37+ global nodes)\n`;
   result += `License: CC BY 4.0\n`;
 
   return result;
@@ -1211,7 +1237,7 @@ async function getIncidentReport(incidentId: string, format: string = 'markdown'
     `${VOIDLY_DATA_API}/incidents/${encodeURIComponent(incidentId)}/report?format=${format}`,
     {
       headers: {
-        'User-Agent': 'Voidly-MCP-Server/1.6',
+        'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
         'Accept': format === 'markdown' ? 'text/markdown' : 'text/plain',
       },
     }
@@ -1411,7 +1437,7 @@ async function getIncidentsSince(since: string): Promise<string> {
 async function agentRegister(name?: string, capabilities?: string[]): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'Content-Type': 'application/json', 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ name, capabilities }),
   });
   if (!response.ok) throw new Error(`Registration failed: ${response.status}`);
@@ -1433,7 +1459,7 @@ async function agentRegister(name?: string, capabilities?: string[]): Promise<st
 async function agentSendMessage(apiKey: string, toDid: string, message: string, threadId?: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ to: toDid, message, thread_id: threadId }),
   });
   if (!response.ok) {
@@ -1456,7 +1482,7 @@ async function agentReceiveMessages(apiKey: string, since?: string, limit?: numb
   if (since) params.set('since', since);
   if (limit) params.set('limit', String(limit));
   const response = await fetch(`${VOIDLY_API}/v1/agent/receive?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Receive failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1479,7 +1505,7 @@ async function agentDiscover(query?: string, capability?: string, limit?: number
   if (capability) params.set('capability', capability);
   if (limit) params.set('limit', String(limit));
   const response = await fetch(`${VOIDLY_API}/v1/agent/discover?${params}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Discovery failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1498,7 +1524,7 @@ async function agentDiscover(query?: string, capability?: string, limit?: number
 
 async function agentGetIdentity(did: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/identity/${did}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Identity lookup failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1518,7 +1544,7 @@ async function agentGetIdentity(did: string): Promise<string> {
 async function agentVerifyMessage(envelope: string, signature: string, senderDid: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/verify`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'Content-Type': 'application/json', 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ envelope, signature, sender_did: senderDid }),
   });
   if (!response.ok) throw new Error(`Verification failed: ${response.status}`);
@@ -1528,7 +1554,7 @@ async function agentVerifyMessage(envelope: string, signature: string, senderDid
 
 async function agentRelayStats(): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/stats`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Stats failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1551,7 +1577,7 @@ async function agentRelayStats(): Promise<string> {
 async function agentDeleteMessage(apiKey: string, messageId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/messages/${messageId}`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Delete failed: ${response.status}`);
   return `Message \`${messageId}\` deleted successfully.`;
@@ -1559,7 +1585,7 @@ async function agentDeleteMessage(apiKey: string, messageId: string): Promise<st
 
 async function agentGetProfile(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/profile`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Profile fetch failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1580,7 +1606,7 @@ async function agentUpdateProfile(apiKey: string, updates: { name?: string; capa
     headers: {
       'Content-Type': 'application/json',
       'X-Agent-Key': apiKey,
-      'User-Agent': 'Voidly-MCP-Server/2.0',
+      'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
     },
     body: JSON.stringify(updates),
   });
@@ -1594,7 +1620,7 @@ async function agentRegisterWebhook(apiKey: string, webhookUrl: string, events?:
     headers: {
       'Content-Type': 'application/json',
       'X-Agent-Key': apiKey,
-      'User-Agent': 'Voidly-MCP-Server/2.0',
+      'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}`,
     },
     body: JSON.stringify({ webhook_url: webhookUrl, events }),
   });
@@ -1611,7 +1637,7 @@ async function agentRegisterWebhook(apiKey: string, webhookUrl: string, events?:
 
 async function agentListWebhooks(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/webhooks`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.0' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Webhook list failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1632,7 +1658,7 @@ async function agentListWebhooks(apiKey: string): Promise<string> {
 async function agentCreateChannel(apiKey: string, name: string, description?: string, topic?: string, isPrivate?: boolean): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/channels`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.1' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ name, description, topic, private: isPrivate }),
   });
   if (!response.ok) {
@@ -1650,7 +1676,7 @@ async function agentListChannels(options: { topic?: string; query?: string; mine
   if (options.mine) params.set('mine', 'true');
   if (options.limit) params.set('limit', String(options.limit));
 
-  const headers: Record<string, string> = { 'User-Agent': 'Voidly-MCP-Server/2.1' };
+  const headers: Record<string, string> = { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` };
   if (options.apiKey) headers['X-Agent-Key'] = options.apiKey;
 
   const response = await fetch(`${VOIDLY_API}/v1/agent/channels?${params}`, { headers });
@@ -1674,7 +1700,7 @@ async function agentListChannels(options: { topic?: string; query?: string; mine
 async function agentJoinChannel(apiKey: string, channelId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/join`, {
     method: 'POST',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.1' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) {
     const err = await response.json() as any;
@@ -1688,7 +1714,7 @@ async function agentJoinChannel(apiKey: string, channelId: string): Promise<stri
 async function agentPostToChannel(apiKey: string, channelId: string, message: string, replyTo?: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/messages`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.1' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ message, reply_to: replyTo }),
   });
   if (!response.ok) {
@@ -1705,7 +1731,7 @@ async function agentReadChannel(apiKey: string, channelId: string, since?: strin
   if (limit) params.set('limit', String(limit));
 
   const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/messages?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.1' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) {
     const err = await response.json() as any;
@@ -1729,7 +1755,7 @@ async function agentReadChannel(apiKey: string, channelId: string, since?: strin
 async function agentDeactivate(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/deactivate`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.2' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) {
     const err = await response.json() as any;
@@ -1744,7 +1770,7 @@ async function agentDeactivate(apiKey: string): Promise<string> {
 async function agentRegisterCapability(apiKey: string, name: string, description?: string, version?: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ name, description, version }),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Registration failed: ${err.error || response.status}`); }
@@ -1754,7 +1780,7 @@ async function agentRegisterCapability(apiKey: string, name: string, description
 
 async function agentListCapabilities(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`List failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1769,7 +1795,7 @@ async function agentSearchCapabilities(query?: string, name?: string, limit?: nu
   if (name) params.set('name', name);
   if (limit) params.set('limit', String(limit));
   const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities/search?${params}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Search failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1781,7 +1807,7 @@ async function agentSearchCapabilities(query?: string, name?: string, limit?: nu
 async function agentDeleteCapability(apiKey: string, capabilityId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/capabilities/${capabilityId}`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Delete failed: ${err.error || response.status}`); }
   return `Capability \`${capabilityId}\` deleted.`;
@@ -1792,7 +1818,7 @@ async function agentDeleteCapability(apiKey: string, capabilityId: string): Prom
 async function agentCreateTask(apiKey: string, to: string, capability: string, encryptedInput: string, inputNonce: string, priority?: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ to, capability, encrypted_input: encryptedInput, input_nonce: inputNonce, priority }),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Task creation failed: ${err.error || response.status}`); }
@@ -1806,7 +1832,7 @@ async function agentListTasks(apiKey: string, role?: string, status?: string, ca
   if (status) params.set('status', status);
   if (capability) params.set('capability', capability);
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`List failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1817,7 +1843,7 @@ async function agentListTasks(apiKey: string, role?: string, status?: string, ca
 
 async function agentGetTask(apiKey: string, taskId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Get failed: ${err.error || response.status}`); }
   const t = await response.json() as any;
@@ -1831,7 +1857,7 @@ async function agentUpdateTask(apiKey: string, taskId: string, status?: string, 
   if (rating !== undefined) body.rating = rating;
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/${taskId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify(body),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Update failed: ${err.error || response.status}`); }
@@ -1844,7 +1870,7 @@ async function agentUpdateTask(apiKey: string, taskId: string, status?: string, 
 async function agentCreateAttestation(apiKey: string, args: any): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/attestations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({
       claim_type: args.claim_type, claim_data: args.claim_data,
       signature: args.signature, timestamp: args.timestamp,
@@ -1866,7 +1892,7 @@ async function agentQueryAttestations(args: any): Promise<string> {
   if (args?.since) params.set('since', args.since);
   if (args?.limit) params.set('limit', String(args.limit));
   const response = await fetch(`${VOIDLY_API}/v1/agent/attestations?${params}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Query failed: ${response.status}`);
   const data = await response.json() as any;
@@ -1879,7 +1905,7 @@ async function agentQueryAttestations(args: any): Promise<string> {
 
 async function agentGetAttestation(attestationId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/attestations/${attestationId}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Get failed: ${err.error || response.status}`); }
   const a = await response.json() as any;
@@ -1890,7 +1916,7 @@ async function agentGetAttestation(attestationId: string): Promise<string> {
 async function agentCorroborate(apiKey: string, attestationId: string, vote: string, signature: string, comment?: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/attestations/${attestationId}/corroborate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ vote, signature, comment }),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Corroboration failed: ${err.error || response.status}`); }
@@ -1904,7 +1930,7 @@ async function agentGetConsensus(country?: string, domain?: string, type?: strin
   if (domain) params.set('domain', domain);
   if (type) params.set('type', type);
   const response = await fetch(`${VOIDLY_API}/v1/agent/attestations/consensus?${params}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.3' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Consensus query failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
@@ -1923,7 +1949,7 @@ async function agentInviteToChannel(apiKey: string, channelId: string, did: stri
   if (expiresHours) body.expires_hours = expiresHours;
   const response = await fetch(`${VOIDLY_API}/v1/agent/channels/${channelId}/invite`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.4' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify(body),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Invite failed: ${err.error || response.status}`); }
@@ -1935,7 +1961,7 @@ async function agentListInvites(apiKey: string, status?: string): Promise<string
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   const response = await fetch(`${VOIDLY_API}/v1/agent/invites?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.4' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`List invites failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
@@ -1949,7 +1975,7 @@ async function agentListInvites(apiKey: string, status?: string): Promise<string
 async function agentRespondInvite(apiKey: string, inviteId: string, action: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/invites/${inviteId}/respond`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.4' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ action }),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Invite response failed: ${err.error || response.status}`); }
@@ -1963,7 +1989,7 @@ async function agentRespondInvite(apiKey: string, inviteId: string, action: stri
 
 async function agentGetTrust(did: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/trust/${did}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.4' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Trust score failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
@@ -1987,9 +2013,9 @@ async function agentTrustLeaderboard(limit?: number, minLevel?: string): Promise
   if (limit) params.set('limit', limit.toString());
   if (minLevel) params.set('min_level', minLevel);
   const response = await fetch(`${VOIDLY_API}/v1/agent/trust/leaderboard?${params}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.4' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
-  if (!response.ok) return 'Failed to fetch leaderboard.';
+  if (!response.ok) { const err = await response.json().catch(() => ({})) as any; throw new Error(`Leaderboard failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   if (!data.leaderboard?.length) return 'No agents on the leaderboard yet.';
   const rows = data.leaderboard.map((r: any) =>
@@ -2001,7 +2027,7 @@ async function agentTrustLeaderboard(limit?: number, minLevel?: string): Promise
 async function agentMarkRead(apiKey: string, messageId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/messages/${messageId}/read`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Mark read failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
@@ -2011,7 +2037,7 @@ async function agentMarkRead(apiKey: string, messageId: string): Promise<string>
 async function agentMarkReadBatch(apiKey: string, messageIds: string[]): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/messages/read-batch`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ message_ids: messageIds }),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Batch read failed: ${err.error || response.status}`); }
@@ -2023,7 +2049,7 @@ async function agentUnreadCount(apiKey: string, fromDid?: string): Promise<strin
   const params = new URLSearchParams();
   if (fromDid) params.set('from', fromDid);
   const response = await fetch(`${VOIDLY_API}/v1/agent/messages/unread-count?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Unread count failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
@@ -2037,11 +2063,10 @@ async function agentUnreadCount(apiKey: string, fromDid?: string): Promise<strin
 async function agentBroadcastTask(apiKey: string, capability: string, input: string, priority?: string, maxAgents?: number, minTrustLevel?: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/broadcast`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({
       capability,
-      encrypted_input: Buffer.from(input).toString('base64'),
-      input_nonce: Buffer.from(Array.from({ length: 24 }, () => Math.floor(Math.random() * 256))).toString('base64'),
+      input,
       priority: priority || 'normal',
       max_agents: maxAgents,
       min_trust_level: minTrustLevel,
@@ -2057,9 +2082,9 @@ async function agentListBroadcasts(apiKey: string, status?: string): Promise<str
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/broadcasts?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
-  if (!response.ok) return 'Failed to list broadcasts.';
+  if (!response.ok) { const err = await response.json().catch(() => ({})) as any; throw new Error(`List broadcasts failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
   if (!data.broadcasts?.length) return 'No broadcasts found.';
   const rows = data.broadcasts.map((b: any) =>
@@ -2070,7 +2095,7 @@ async function agentListBroadcasts(apiKey: string, status?: string): Promise<str
 
 async function agentGetBroadcast(apiKey: string, broadcastId: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/tasks/broadcasts/${broadcastId}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Broadcast detail failed: ${err.error || response.status}`); }
   const data = await response.json() as any;
@@ -2085,7 +2110,7 @@ async function agentGetAnalytics(apiKey: string, period?: string): Promise<strin
   const params = new URLSearchParams();
   if (period) params.set('period', period);
   const response = await fetch(`${VOIDLY_API}/v1/agent/analytics?${params}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.5' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Analytics failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
@@ -2101,7 +2126,7 @@ async function agentGetAnalytics(apiKey: string, period?: string): Promise<strin
 async function agentMemorySet(apiKey: string, namespace: string, key: string, value: unknown, valueType?: string, ttl?: number): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ value, value_type: valueType, ttl }),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory set failed: ${err.error || response.status}`); }
@@ -2111,7 +2136,7 @@ async function agentMemorySet(apiKey: string, namespace: string, key: string, va
 
 async function agentMemoryGet(apiKey: string, namespace: string, key: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (response.status === 404) return `❌ Key **${namespace}/${key}** not found`;
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory get failed: ${err.error || response.status}`); }
@@ -2123,7 +2148,7 @@ async function agentMemoryGet(apiKey: string, namespace: string, key: string): P
 async function agentMemoryDelete(apiKey: string, namespace: string, key: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(namespace)}/${encodeURIComponent(key)}`, {
     method: 'DELETE',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory delete failed: ${err.error || response.status}`); }
   return `🗑️ Deleted **${namespace}/${key}**`;
@@ -2135,7 +2160,7 @@ async function agentMemoryList(apiKey: string, namespace?: string, prefix?: stri
   if (prefix) params.set('prefix', prefix);
   const qs = params.toString() ? `?${params.toString()}` : '';
   const response = await fetch(`${VOIDLY_API}/v1/agent/memory/${encodeURIComponent(ns)}${qs}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory list failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
@@ -2146,7 +2171,7 @@ async function agentMemoryList(apiKey: string, namespace?: string, prefix?: stri
 
 async function agentMemoryNamespaces(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/memory`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Memory namespaces failed: ${err.error || response.status}`); }
   const d = await response.json() as any;
@@ -2161,7 +2186,7 @@ async function agentMemoryNamespaces(apiKey: string): Promise<string> {
 async function agentExportData(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/export`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({}),
   });
   if (!response.ok) { const err = await response.json() as any; throw new Error(`Export failed: ${err.error || response.status}`); }
@@ -2185,7 +2210,7 @@ async function agentExportData(apiKey: string): Promise<string> {
 
 async function relayInfo(): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/relay/info`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Relay info failed: ${response.status}`);
   const d = await response.json() as any;
@@ -2200,7 +2225,7 @@ async function relayInfo(): Promise<string> {
 
 async function relayPeers(): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/relay/peers`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Relay peers failed: ${response.status}`);
   const d = await response.json() as any;
@@ -2212,7 +2237,7 @@ async function relayPeers(): Promise<string> {
 async function agentPing(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/ping`, {
     method: 'POST',
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Ping failed: ${response.status}`);
   const d = await response.json() as any;
@@ -2221,7 +2246,7 @@ async function agentPing(apiKey: string): Promise<string> {
 
 async function agentPingCheck(did: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/ping/${encodeURIComponent(did)}`, {
-    headers: { 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Ping check failed: ${response.status}`);
   const d = await response.json() as any;
@@ -2232,7 +2257,7 @@ async function agentPingCheck(did: string): Promise<string> {
 async function agentKeyPin(apiKey: string, did: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/keys/pin`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'Content-Type': 'application/json', 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
     body: JSON.stringify({ did }),
   });
   if (!response.ok) throw new Error(`Key pin failed: ${response.status}`);
@@ -2243,7 +2268,7 @@ async function agentKeyPin(apiKey: string, did: string): Promise<string> {
 
 async function agentKeyPins(apiKey: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/keys/pins`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`List pins failed: ${response.status}`);
   const d = await response.json() as any;
@@ -2254,7 +2279,7 @@ async function agentKeyPins(apiKey: string): Promise<string> {
 
 async function agentKeyVerify(apiKey: string, did: string): Promise<string> {
   const response = await fetch(`${VOIDLY_API}/v1/agent/keys/verify/${encodeURIComponent(did)}`, {
-    headers: { 'X-Agent-Key': apiKey, 'User-Agent': 'Voidly-MCP-Server/2.7' },
+    headers: { 'X-Agent-Key': apiKey, 'User-Agent': `Voidly-MCP-Server/${MCP_VERSION}` },
   });
   if (!response.ok) throw new Error(`Key verify failed: ${response.status}`);
   const d = await response.json() as any;
@@ -2267,7 +2292,7 @@ async function agentKeyVerify(apiKey: string, did: string): Promise<string> {
 const server = new Server(
   {
     name: 'voidly-censorship-index',
-    version: '2.0.0',
+    version: '2.9.0',
   },
   {
     capabilities: {
@@ -2282,7 +2307,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'get_censorship_index',
-      description: 'Get the Voidly Global Censorship Index - a comprehensive overview of internet censorship across 80+ countries. Returns summary statistics and the most censored countries ranked by anomaly rate.',
+      description: 'Get the Voidly Global Censorship Index - a comprehensive overview of internet censorship across 126 countries. Returns summary statistics and the most censored countries ranked by anomaly rate.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
@@ -2305,7 +2330,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'check_domain_blocked',
-      description: 'Check if a specific domain is likely blocked in a country. Returns general censorship status for the country.',
+      description: 'Check if a specific domain may be blocked in a country. Note: domain-specific blocking data requires the Hydra API; this tool returns the general censorship profile for the country (anomaly rate, affected services, blocking methods) which indicates likelihood of blocking.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -2364,7 +2389,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'check_vpn_accessibility',
-      description: 'Check VPN accessibility from different countries. UNIQUE DATA: Only Voidly can answer "Can users in Iran connect to VPNs?" by testing VPN endpoints from 16 global locations.',
+      description: 'Check VPN accessibility from different countries. UNIQUE DATA: Only Voidly can answer "Can users in Iran connect to VPNs?" by testing VPN endpoints from 37+ global locations.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -2542,7 +2567,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'get_probe_network',
-      description: 'Get real-time status of Voidly\'s 16-node global probe network. Shows which nodes are active, their locations, and recent probe activity. Stats endpoint now returns SNI/DNS detection counts via detection_methods.',
+      description: 'Get real-time status of Voidly\'s 37+ node global probe network. Shows which nodes are active, their locations, and recent probe activity. Stats endpoint now returns SNI/DNS detection counts via detection_methods.',
       inputSchema: {
         type: 'object' as const,
         properties: {},
@@ -2551,7 +2576,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'check_domain_probes',
-      description: 'Check Voidly probe results for a specific domain. Shows real-time blocking status from 16 global locations with blocking method and entity attribution. Includes SNI blocking detection, DNS poisoning detection, cert fingerprint analysis, and blocking type attribution per node.',
+      description: 'Check Voidly probe results for a specific domain. Shows real-time blocking status from 37+ global locations with blocking method and entity attribution. Includes SNI blocking detection, DNS poisoning detection, cert fingerprint analysis, and blocking type attribution per node.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -3922,14 +3947,20 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   }
 });
 
-// Start server
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('Voidly MCP Server running on stdio');
+// Smithery sandbox export for server scanning
+export function createSandboxServer() {
+  return server;
 }
 
-main().catch((error) => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-});
+// Start server — only auto-connect when run directly (not imported by Smithery)
+const isDirectRun = !process.env.SMITHERY_SCAN && !process.env.SMITHERY;
+
+if (isDirectRun) {
+  const transport = new StdioServerTransport();
+  server.connect(transport).then(() => {
+    console.error('Voidly MCP Server running on stdio');
+  }).catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
+}

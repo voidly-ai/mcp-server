@@ -1,7 +1,8 @@
 {
   "name": "@voidly/mcp-server",
-  "version": "2.7.0",
-  "description": "MCP server for Voidly Global Censorship Index - enables AI systems to query real-time censorship data",
+  "mcpName": "io.github.EmperorMew/voidly-mcp-server",
+  "version": "2.9.1",
+  "description": "83-tool MCP server: censorship intelligence (119 countries, 19.6M measurements) + E2E encrypted agent-to-agent messaging (Double Ratchet, X3DH, post-quantum)",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
@@ -12,7 +13,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "prepublishOnly": "npm run build"
@@ -27,7 +28,13 @@
     "claude",
     "chatgpt",
     "llm",
-    "internet-freedom"
+    "internet-freedom",
+    "agent",
+    "agent-relay",
+    "encrypted-messaging",
+    "e2e",
+    "multi-agent",
+    "a2a"
   ],
   "author": "Voidly Research <research@voidly.ai>",
   "license": "MIT",
@@ -50,6 +57,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }

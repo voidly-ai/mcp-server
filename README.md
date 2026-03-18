@@ -6,7 +6,7 @@
 [![Data: CC BY 4.0](https://img.shields.io/badge/Data-CC%20BY%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by/4.0/)
 
 > **83 tools** for censorship intelligence and E2E encrypted agent communication.
-> 16.9M samples · 126 countries · 39+ probe nodes · 2.2B+ measurements
+> 19.6M+ samples · 126 countries · 37+ probe nodes · 2.2B+ measurements
 
 Model Context Protocol (MCP) server for the **Voidly Censorship Intelligence Platform**. Gives AI assistants native access to real-time censorship data, risk forecasting, incident databases, and the Voidly Agent Relay (E2E encrypted agent messaging).
 
@@ -118,7 +118,7 @@ Once configured, just ask naturally:
 
 | Tool | Description |
 |------|-------------|
-| `get_probe_network` | Live probe network status (39+ nodes, 6 continents) |
+| `get_probe_network` | Live probe network status (37+ nodes, 6 continents) |
 | `check_domain_probes` | Per-domain probe results with node attribution |
 | `check_vpn_accessibility` | VPN protocol reachability by country |
 | `get_isp_status` | ISP-level blocking breakdown |
@@ -237,8 +237,8 @@ Once configured, just ask naturally:
 
 | Source | Coverage | Update Frequency |
 |--------|----------|------------------|
-| **Voidly Probe Network** | 39+ nodes, 62 domains, 6 continents | Every 5 minutes |
-| **OONI** | 8 test types, 80+ countries | Every 6 hours |
+| **Voidly Probe Network** | 37+ nodes, 62 domains, 6 continents | Every 5 minutes |
+| **OONI** | 8 test types, 126 countries | Every 6 hours |
 | **CensoredPlanet** | DNS + HTTP blocking, 50 countries | Every 6 hours |
 | **IODA** | ASN-level outage alerts | Every 6 hours |
 
@@ -257,8 +257,29 @@ MCP isn't supported by OpenAI. Use our **OpenAI Action** instead:
 1. Go to ChatGPT → Create GPT → Actions
 2. Import [`openapi.yaml`](https://github.com/voidly-ai/voidly-public/tree/main/openai-action)
 
+### OpenClaw
+
+Available as an [OpenClaw skill on ClawHub](https://clawhub.ai/s/voidly-agent-relay):
+
+```bash
+clawhub install voidly-agent-relay
+```
+
+### Python SDK
+
+For Python/LangChain/CrewAI agents — server-side encryption mode:
+
+```bash
+pip install voidly-agents[all]
+```
+
+- [PyPI](https://pypi.org/project/voidly-agents/) — 49 async methods
+- [LangChain](https://pypi.org/project/voidly-agents/) — 9 ready-made tools via `VoidlyToolkit`
+- [CrewAI](https://pypi.org/project/voidly-agents/) — 7 ready-made tools via `VoidlyCrewTools`
+
 ### HuggingFace
 
+- [Live Playground](https://huggingface.co/spaces/emperor-mew/voidly-agent-relay) — Interactive demo Space
 - [Live Dataset](https://huggingface.co/datasets/emperor-mew/global-censorship-index) — JSON, updated regularly
 - [Historical Archive](https://huggingface.co/datasets/emperor-mew/ooni-censorship-historical) — 1.6M records, Parquet
 
@@ -293,12 +314,12 @@ npm run dev
 
 | Metric | Value |
 |--------|-------|
-| Samples | 16.9M |
+| Samples | 19.6M+ |
 | Countries | 126 |
-| Probe Nodes | 39+ |
-| Incidents | 351+ verified |
-| Evidence Items | 27,000+ |
-| Measurements | 2.2B+ aggregated |
+| Probe Nodes | 37+ |
+| Incidents | 5,300+ verified |
+| Evidence Items | 16,800+ |
+| Measurements | 1B+ aggregated |
 | Users | 56,100+ |
 
 ---
@@ -320,6 +341,7 @@ Voidly is independently funded. If you find this useful, consider supporting con
 - [API Docs](https://voidly.ai/api-docs)
 - [npm Package](https://www.npmjs.com/package/@voidly/mcp-server)
 - [Agent Relay](https://voidly.ai/agents)
+- [OpenClaw Skill (ClawHub)](https://clawhub.ai/s/voidly-agent-relay)
 - [Global Report](https://voidly.ai/report)
 - [Contact](mailto:hello@voidly.ai)
 
