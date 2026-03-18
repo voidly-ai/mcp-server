@@ -317,9 +317,9 @@ npm run dev
 | Samples | 19.6M+ |
 | Countries | 126 |
 | Probe Nodes | 37+ |
-| Incidents | 5,300+ verified |
-| Evidence Items | 16,800+ |
-| Measurements | 1B+ aggregated |
+| Incidents | 5,700+ verified |
+| Evidence Items | 33,600+ |
+| Measurements | 2.2B+ aggregated |
 | Users | 56,100+ |
 
 ---
