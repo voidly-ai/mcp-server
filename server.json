@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.EmperorMew/voidly-mcp-server",
+  "name": "io.github.voidly-ai/mcp-server",
   "description": "83 tools: censorship intelligence (119 countries) + E2E encrypted agent messaging",
   "repository": {
     "url": "https://github.com/voidly-ai/mcp-server",
