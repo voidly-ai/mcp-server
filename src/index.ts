@@ -39,7 +39,7 @@ const COUNTRY_NAMES: Record<string, string> = {
   NZ: 'New Zealand', HK: 'Hong Kong', TW: 'Taiwan', SG: 'Singapore' };
 
 // MCP server version — used in User-Agent and server metadata
-const MCP_VERSION = '2.9.3';
+const MCP_VERSION = '2.9.4';
 
 // Fetch helper with error handling and timeout
 async function fetchJson<T>(url: string): Promise<T> {
@@ -2262,7 +2262,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['country_code'] } },
     {
       name: 'check_domain_blocked',
-      description: 'Check if a specific domain may be blocked in a country. Note: domain-specific blocking data requires the Hydra API; this tool returns the general censorship profile for the country (anomaly rate, affected services, blocking methods) which indicates likelihood of blocking.',
+      description: 'Check censorship risk for a domain in a specific country. Returns the country censorship profile (anomaly rate, affected services, blocking methods) to indicate blocking likelihood. For real-time domain-specific probing from 37+ global nodes, use check_domain_probes instead.',
       inputSchema: {
         type: 'object' as const,
         properties: {
